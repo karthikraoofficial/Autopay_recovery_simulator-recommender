@@ -24,4 +24,11 @@ def shipped() -> Assumptions:
 @pytest.fixture(scope="session")
 def small(shipped: Assumptions) -> Assumptions:
     """A book small enough to run many times in a test suite. Shape is unchanged."""
-    return override(shipped, {"book.size": 120, "book.months": 6, "book.bank_count": 4})
+    return override(shipped, {"book.size": 120, "book.months": 6, "population.bank.count": 4})
+
+
+@pytest.fixture(scope="session")
+def wide(shipped: Assumptions) -> Assumptions:
+    """A book wide enough that a bucketed probability is a measurement rather than
+    noise. Used by the population tests, which assert distribution shape."""
+    return override(shipped, {"book.size": 1500})

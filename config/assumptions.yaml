@@ -74,9 +74,8 @@ assumptions:
     confidence: practitioner
     notes: "Frozen by definition. Changing it changes what the baseline means, not how good it is."
 
-  # --- Phase-2 placeholder book. Phase 3 replaces every key below this line -----
-  # These exist so the harness has a population to measure. They are not claims
-  # about the Indian market and must not be shown to a merchant.
+  # --- Book shape ---------------------------------------------------------------
+  # What is being simulated, as distinct from how the population is distributed.
 
   book.size:
     value: 2000
@@ -102,124 +101,378 @@ assumptions:
     source: "Placeholder subscription ticket. No merchant basis."
     confidence: estimate
 
-  book.ticket_lognormal_sigma:
-    value: 0.35
-    unit: ratio
-    source: "Placeholder dispersion of ticket size across the book."
-    confidence: estimate
+  # --- Rail mandate caps ---------------------------------------------------------
+  # Regulatory/scheme ceilings, not book parameters. A generated mandate cap is
+  # clipped to these, so a merchant cannot be simulated debiting above the rail limit.
 
-  book.rail_mix.upi_autopay:
-    value: 0.55
-    unit: ratio
-    source: "Placeholder rail mix. No NPCI volume file read."
+  rail.enach.mandate_cap_inr:
+    value: 10000000
+    unit: INR
+    source: "SPEC.md §1.1 states 'caps up to ₹1 crore'. No NPCI circular read."
     confidence: estimate
+    notes: "Verify against the current NACH procedural guidelines before external use."
 
-  book.rail_mix.enach:
-    value: 0.30
-    unit: ratio
-    source: "Placeholder rail mix. No NPCI volume file read."
+  rail.card_emandate.mandate_cap_inr:
+    value: 1500000
+    unit: INR
+    source: "Guess. SPEC.md §1.1 gives an AFA threshold for cards, not a mandate ceiling; the two are different things and we have read neither circular."
     confidence: estimate
+    notes: "The ₹15,000 figure in SPEC.md §1.1 is the additional-factor-of-authentication threshold. Modelling it as a hard cap would be wrong; this is a separate, invented ceiling."
 
-  book.rail_mix.card_emandate:
-    value: 0.15
-    unit: ratio
-    source: "Placeholder rail mix. No NPCI volume file read."
-    confidence: estimate
+  # --- Population: banks ---------------------------------------------------------
+  # Phase 3. Every value here is a guess about the Indian banking system. NPCI
+  # publishes per-bank technical-decline and uptime data monthly; none of it has been
+  # read, and until it is, no per-bank number in this file is defensible.
 
-  book.mandate_cap_multiple_of_ticket:
-    value: 3.0
-    unit: ratio
-    source: "Placeholder. Merchants typically set headroom above the ticket."
-    confidence: estimate
-
-  book.bank_count:
+  population.bank.count:
     value: 12
     unit: count
-    source: "Placeholder. Real books concentrate in far fewer banks."
+    source: "Placeholder. Real books concentrate in far fewer banks than they touch."
     confidence: estimate
 
-  book.bank.td_rate_min:
+  population.bank.share_concentration:
+    value: 1.1
+    unit: exponent
+    source: "Zipf exponent on bank market share. Chosen to make a book concentrate in a handful of banks rather than spread uniformly. Not fitted."
+    confidence: estimate
+    notes: "0 gives a uniform book. Higher concentrates further. Drives how much a BankAware strategy can matter, so lift is sensitive to it."
+
+  population.bank.td_rate_min:
     value: 0.005
     unit: ratio
     source: "Placeholder range for per-bank technical decline rate."
     confidence: estimate
 
-  book.bank.td_rate_max:
+  population.bank.td_rate_max:
     value: 0.045
     unit: ratio
     source: "Placeholder range for per-bank technical decline rate."
     confidence: estimate
 
-  book.bank.uptime_min:
-    value: 0.90
+  population.bank.uptime_daytime:
+    value: 0.995
     unit: ratio
-    source: "Placeholder worst hourly uptime."
+    source: "Placeholder best-hour availability for a median bank."
     confidence: estimate
 
-  book.bank.uptime_max:
-    value: 0.999
+  population.bank.uptime_night_trough:
+    value: 0.955
     unit: ratio
-    source: "Placeholder best hourly uptime."
+    source: "Placeholder worst-hour availability for a median bank. Assumes a nightly dip around batch/maintenance hours."
     confidence: estimate
 
-  book.bank.batch_cutoff_hour:
+  population.bank.uptime_trough_hour:
+    value: 2
+    unit: hour_of_day
+    source: "Placeholder hour of worst availability. Assumed to sit in the early morning."
+    confidence: estimate
+
+  population.bank.unavailability_factor_min:
+    value: 0.4
+    unit: ratio
+    source: "Multiplier on a bank's downtime relative to the median bank; the low end is the best bank in the book."
+    confidence: estimate
+
+  population.bank.unavailability_factor_max:
+    value: 2.5
+    unit: ratio
+    source: "Multiplier on a bank's downtime relative to the median bank; the high end is the worst bank in the book."
+    confidence: estimate
+
+  population.bank.downtime_windows_mean:
+    value: 0.8
+    unit: count
+    source: "Placeholder mean number of recurring scheduled downtime windows per bank."
+    confidence: estimate
+
+  population.bank.downtime_windows_max:
+    value: 2
+    unit: count
+    source: "Cap on the Poisson draw above, so no bank is generated permanently offline."
+    confidence: estimate
+
+  population.bank.downtime_window_hours:
+    value: 2
+    unit: hours
+    source: "Placeholder length of a scheduled maintenance window."
+    confidence: estimate
+
+  population.bank.downtime_window_earliest_hour:
+    value: 0
+    unit: hour_of_day
+    source: "Placeholder. Scheduled maintenance is assumed to sit overnight."
+    confidence: estimate
+
+  population.bank.downtime_window_latest_hour:
+    value: 4
+    unit: hour_of_day
+    source: "Placeholder. Window start is drawn in [earliest, latest]; the window ends before 24:00 by construction."
+    confidence: estimate
+
+  population.bank.downtime_window_daily_share:
+    value: 0.35
+    unit: ratio
+    source: "Share of generated windows that recur every day rather than on one weekday."
+    confidence: estimate
+
+  population.bank.batch_cutoff_hour:
     value: 17
     unit: hour_of_day
     source: "Placeholder eNACH presentation cutoff."
     confidence: estimate
 
-  book.bank.return_charge_paise:
+  population.bank.return_charge_paise:
     value: 59000
     unit: paise
     source: "Placeholder bounce charge levied on eNACH return."
     confidence: estimate
 
-  book.customer.income_multiple_of_ticket:
-    value: 90.0
-    unit: ratio
-    source: "Placeholder link between subscription ticket and monthly income."
-    confidence: estimate
+  # --- Population: customers -----------------------------------------------------
 
-  book.customer.spend_decay_rate:
-    value: 0.09
-    unit: ratio_per_day
-    source: "Placeholder. Real value is fitted in phase 4."
-    confidence: estimate
-
-  book.customer.balance_lognormal_sigma:
+  population.customer.band_share.low:
     value: 0.45
     unit: ratio
-    source: "Placeholder. Real value is fitted in phase 4."
+    source: "Placeholder income-band mix of a subscription book. No survey read."
     confidence: estimate
 
-  book.customer.income_band_low_multiple:
-    value: 0.75
+  population.customer.band_share.mid:
+    value: 0.40
     unit: ratio
-    source: "Placeholder cut, as a multiple of median income, below which a customer is LOW band."
+    source: "Placeholder income-band mix of a subscription book. No survey read."
     confidence: estimate
 
-  book.customer.income_band_high_multiple:
-    value: 1.5
+  population.customer.band_share.high:
+    value: 0.15
     unit: ratio
-    source: "Placeholder cut, as a multiple of median income, above which a customer is HIGH band."
+    source: "Placeholder income-band mix of a subscription book. No survey read."
     confidence: estimate
 
-  book.customer.intent_score_initial:
-    value: 0.90
+  population.customer.income_median_paise.low:
+    value: 2500000
+    unit: paise
+    source: "Placeholder median monthly income for the LOW band (₹25,000)."
+    confidence: estimate
+
+  population.customer.income_median_paise.mid:
+    value: 5500000
+    unit: paise
+    source: "Placeholder median monthly income for the MID band (₹55,000)."
+    confidence: estimate
+
+  population.customer.income_median_paise.high:
+    value: 15000000
+    unit: paise
+    source: "Placeholder median monthly income for the HIGH band (₹150,000)."
+    confidence: estimate
+
+  population.customer.income_lognormal_sigma:
+    value: 0.30
     unit: ratio
-    source: "Placeholder starting intent. Unobservable in reality."
+    source: "Placeholder dispersion of income within a band."
     confidence: estimate
 
-  book.customer.salary_day_min:
+  population.customer.salary_day.month_end_share:
+    value: 0.62
+    unit: ratio
+    source: "Placeholder. Indian payroll is assumed to cluster at month end, with a secondary cluster in the first week."
+    confidence: estimate
+    notes: "This split is what SalaryAware has to infer. If it is wrong, the inference problem in phase 7 is the wrong shape."
+
+  population.customer.salary_day.month_end_min:
+    value: 25
+    unit: day_of_month
+    source: "Placeholder start of the month-end payroll cluster."
+    confidence: estimate
+
+  population.customer.salary_day.month_end_max:
+    value: 31
+    unit: day_of_month
+    source: "Placeholder end of the month-end payroll cluster. Clamped to the month's last day in short months."
+    confidence: estimate
+
+  population.customer.salary_day.month_start_min:
     value: 1
     unit: day_of_month
-    source: "Placeholder. Indian salary credits cluster at month start."
+    source: "Placeholder start of the first-week payroll cluster."
     confidence: estimate
 
-  book.customer.salary_day_max:
+  population.customer.salary_day.month_start_max:
     value: 7
     unit: day_of_month
-    source: "Placeholder. Indian salary credits cluster at month start."
+    source: "Placeholder end of the first-week payroll cluster."
+    confidence: estimate
+
+  population.customer.intent_score_mean:
+    value: 0.90
+    unit: ratio
+    source: "Placeholder mean starting intent. Unobservable in reality."
+    confidence: estimate
+
+  population.customer.intent_score_concentration:
+    value: 25.0
+    unit: count
+    source: "Beta concentration for starting intent. Higher means the book is more uniformly committed."
+    confidence: estimate
+
+  population.customer.has_alt_rail_share:
+    value: 0.35
+    unit: ratio
+    source: "Placeholder share of customers reachable on a second rail."
+    confidence: estimate
+
+  population.customer.upi_app_share.app_a:
+    value: 0.46
+    unit: ratio
+    source: "Placeholder UPI app mix. Apps are unnamed on purpose: we have not read the NPCI app-wise volume file and will not invent named market shares."
+    confidence: estimate
+
+  population.customer.upi_app_share.app_b:
+    value: 0.35
+    unit: ratio
+    source: "See population.customer.upi_app_share.app_a."
+    confidence: estimate
+
+  population.customer.upi_app_share.app_c:
+    value: 0.12
+    unit: ratio
+    source: "See population.customer.upi_app_share.app_a."
+    confidence: estimate
+
+  population.customer.upi_app_share.app_d:
+    value: 0.07
+    unit: ratio
+    source: "See population.customer.upi_app_share.app_a."
+    confidence: estimate
+
+  # --- Population: balance process (SPEC §2.1) -----------------------------------
+  # The emergent property these must produce is that P(insufficient funds) rises with
+  # days since salary credit. Every value is a guess; the shape is the claim, not the
+  # level, and phase 4 fits the level against a pilot merchant's reason-code mix.
+
+  population.balance.spend_decay_rate.low:
+    value: 0.075
+    unit: ratio_per_day
+    source: "Placeholder, back-solved so the median LOW-band account holds roughly 7% of a month's income when the next credit lands. Lower income is assumed to spend down fastest, so it is most exposed to a late-cycle debit."
+    confidence: estimate
+    notes: "Set by the end-of-cycle balance it implies, not measured. Raise it and late-cycle insufficient-funds risk saturates at 100%, which would make retry timing look worthless."
+
+  population.balance.spend_decay_rate.mid:
+    value: 0.060
+    unit: ratio_per_day
+    source: "Placeholder. See population.balance.spend_decay_rate.low."
+    confidence: estimate
+
+  population.balance.spend_decay_rate.high:
+    value: 0.045
+    unit: ratio_per_day
+    source: "Placeholder. See population.balance.spend_decay_rate.low."
+    confidence: estimate
+
+  population.balance.first_week_days:
+    value: 7
+    unit: days
+    source: "SPEC.md §2.1 asks for higher spend velocity in the first week; the boundary is a guess."
+    confidence: estimate
+
+  population.balance.first_week_spend_multiplier:
+    value: 1.9
+    unit: ratio
+    source: "Placeholder multiplier on the decay rate inside the first week after credit."
+    confidence: estimate
+
+  population.balance.daily_lognormal_sigma.low:
+    value: 0.55
+    unit: ratio
+    source: "Placeholder day-to-day balance volatility. Assumed highest in the LOW band."
+    confidence: estimate
+
+  population.balance.daily_lognormal_sigma.mid:
+    value: 0.45
+    unit: ratio
+    source: "Placeholder day-to-day balance volatility."
+    confidence: estimate
+
+  population.balance.daily_lognormal_sigma.high:
+    value: 0.35
+    unit: ratio
+    source: "Placeholder day-to-day balance volatility."
+    confidence: estimate
+
+  population.balance.cushion_lognormal_sigma:
+    value: 0.90
+    unit: ratio
+    source: "Guess. Dispersion of how much cash a customer actually keeps, holding income fixed. Stands in for every determinant of account balance that is not income: other accounts, dependants, rent timing, existing obligations."
+    confidence: estimate
+    notes: "This single parameter sets what share of the book is thin-balance, and therefore the level of INSUFFICIENT_FUNDS the phase-4 engine can produce. At 0 the model has no insufficient-funds failures at a realistic subscription ticket at all. It is the most consequential unmeasured number in the population model and the first thing to fit against pilot merchant data."
+
+  population.balance.carryover_fraction_mean:
+    value: 0.12
+    unit: ratio
+    source: "Placeholder share of one month's income still in the account when the next credit lands."
+    confidence: estimate
+
+  population.balance.carryover_lognormal_sigma:
+    value: 0.60
+    unit: ratio
+    source: "Placeholder dispersion of carryover across customers and months."
+    confidence: estimate
+
+  population.balance.salary_jitter_max_days:
+    value: 2
+    unit: days
+    source: "SPEC.md §2.1 asks for 0-2 day jitter. Modelled as late-only: payroll slips, it does not run early."
+    confidence: estimate
+
+  population.balance.salary_shifts_before_weekend:
+    value: true
+    unit: bool
+    source: "Assumption that a credit landing on a Saturday or Sunday is made on the preceding Friday. No holiday calendar is modelled."
+    confidence: estimate
+    notes: "Bank holidays are not modelled at all, so the shift is weekend-only and understates late-credit risk."
+
+  # --- Population: mandates ------------------------------------------------------
+
+  population.mandate.rail_mix.upi_autopay:
+    value: 0.55
+    unit: ratio
+    source: "Placeholder rail mix. No NPCI volume file read."
+    confidence: estimate
+
+  population.mandate.rail_mix.enach:
+    value: 0.30
+    unit: ratio
+    source: "Placeholder rail mix. No NPCI volume file read."
+    confidence: estimate
+
+  population.mandate.rail_mix.card_emandate:
+    value: 0.15
+    unit: ratio
+    source: "Placeholder rail mix. No NPCI volume file read."
+    confidence: estimate
+
+  population.mandate.ticket_lognormal_sigma:
+    value: 0.35
+    unit: ratio
+    source: "Placeholder dispersion of ticket size across the book."
+    confidence: estimate
+
+  population.mandate.cap_multiple_of_ticket:
+    value: 3.0
+    unit: ratio
+    source: "Placeholder. Merchants typically set mandate headroom above the ticket."
+    confidence: estimate
+
+  population.mandate.billing_day_max:
+    value: 28
+    unit: day_of_month
+    source: "Billing days are drawn uniformly over 1..this. 28 is a calendar fact, not an assumption: a higher fixed billing day has no meaning in February."
+    confidence: estimate
+    notes: "Uniform is certainly wrong — real books cluster on signup dates and month boundaries — but a spread book is what makes days-since-salary vary at debit time, which is the whole mechanism under test."
+
+  population.mandate.max_age_months:
+    value: 24
+    unit: count
+    source: "Placeholder oldest mandate at simulation start. Sets book tenure, which nothing currently reads."
     confidence: estimate
 
   # --- Phase-2 stub engine. Phase 4 replaces every key below this line ---------
@@ -346,53 +599,129 @@ open_questions:
   - key: harness.confidence_level
     question: "90% or 95% for external claims? 95% is the defensible choice."
   - key: book.size
-    question: "Every book.* key is a phase-2 placeholder. Phase 3 replaces them with generators fitted to something real."
+    question: "Book size, horizon and epoch are inputs, not findings. What does the pilot merchant's book actually look like?"
   - key: book.months
     question: "See book.size."
   - key: book.start_date
-    question: "See book.size."
-  - key: book.customer.income_band_low_multiple
-    question: "See book.size."
-  - key: book.customer.income_band_high_multiple
-    question: "See book.size."
+    question: "See book.size. Weekday alignment of the epoch shifts results via the weekend salary shift."
   - key: book.avg_ticket_paise
     question: "See book.size."
-  - key: book.ticket_lognormal_sigma
-    question: "See book.size."
-  - key: book.rail_mix.upi_autopay
-    question: "Rail mix by vertical. Needs an NPCI volume file or pilot merchant data."
-  - key: book.rail_mix.enach
-    question: "See book.rail_mix.upi_autopay."
-  - key: book.rail_mix.card_emandate
-    question: "See book.rail_mix.upi_autopay."
-  - key: book.mandate_cap_multiple_of_ticket
-    question: "See book.size."
-  - key: book.bank_count
-    question: "See book.size."
-  - key: book.bank.td_rate_min
-    question: "NPCI publishes per-bank technical-decline rates monthly. Pull the file."
-  - key: book.bank.td_rate_max
-    question: "See book.bank.td_rate_min."
-  - key: book.bank.uptime_min
-    question: "See book.bank.td_rate_min."
-  - key: book.bank.uptime_max
-    question: "See book.bank.td_rate_min."
-  - key: book.bank.batch_cutoff_hour
+  - key: rail.enach.mandate_cap_inr
+    question: "Current NACH mandate ceiling. SPEC.md §1.1 says ₹1 crore; no procedural guideline has been read."
+  - key: rail.card_emandate.mandate_cap_inr
+    question: "Is there a card e-mandate ceiling at all, as distinct from the AFA threshold? This entry currently invents one."
+  - key: population.bank.count
+    question: "How many banks does a real subscription book actually touch, and how concentrated is it?"
+  - key: population.bank.share_concentration
+    question: "See population.bank.count. Lift from a bank-aware strategy is sensitive to this."
+  - key: population.bank.td_rate_min
+    question: "NPCI publishes per-bank technical-decline rates monthly. Pull the file and replace the whole population.bank.* subtree."
+  - key: population.bank.td_rate_max
+    question: "See population.bank.td_rate_min."
+  - key: population.bank.uptime_daytime
+    question: "See population.bank.td_rate_min."
+  - key: population.bank.uptime_night_trough
+    question: "See population.bank.td_rate_min. Is the dip nightly, and how deep?"
+  - key: population.bank.uptime_trough_hour
+    question: "See population.bank.uptime_night_trough."
+  - key: population.bank.unavailability_factor_min
+    question: "Spread between the best and worst bank in a book. See population.bank.td_rate_min."
+  - key: population.bank.unavailability_factor_max
+    question: "See population.bank.unavailability_factor_min."
+  - key: population.bank.downtime_windows_mean
+    question: "Do banks publish scheduled maintenance windows, and does NPCI expose them?"
+  - key: population.bank.downtime_windows_max
+    question: "See population.bank.downtime_windows_mean."
+  - key: population.bank.downtime_window_hours
+    question: "See population.bank.downtime_windows_mean."
+  - key: population.bank.downtime_window_earliest_hour
+    question: "See population.bank.downtime_windows_mean."
+  - key: population.bank.downtime_window_latest_hour
+    question: "See population.bank.downtime_windows_mean."
+  - key: population.bank.downtime_window_daily_share
+    question: "See population.bank.downtime_windows_mean."
+  - key: population.bank.batch_cutoff_hour
     question: "eNACH clearing calendar and presentation cutoffs."
-  - key: book.bank.return_charge_paise
-    question: "Actual bank return charges on eNACH bounce."
-  - key: book.customer.income_multiple_of_ticket
+  - key: population.bank.return_charge_paise
+    question: "Actual bank return charges on eNACH bounce. Varies by bank and is a real cost of retry aggression."
+  - key: population.customer.band_share.low
+    question: "Income-band mix of a subscription book. Needs pilot merchant data or a consumer survey."
+  - key: population.customer.band_share.mid
+    question: "See population.customer.band_share.low."
+  - key: population.customer.band_share.high
+    question: "See population.customer.band_share.low."
+  - key: population.customer.income_median_paise.low
+    question: "Median income per band. See population.customer.band_share.low."
+  - key: population.customer.income_median_paise.mid
+    question: "See population.customer.income_median_paise.low."
+  - key: population.customer.income_median_paise.high
+    question: "See population.customer.income_median_paise.low."
+  - key: population.customer.income_lognormal_sigma
+    question: "See population.customer.income_median_paise.low."
+  - key: population.customer.salary_day.month_end_share
+    question: "How does Indian payroll actually distribute across the month? This is the distribution SalaryAware must infer, so getting its shape wrong makes phase 7 solve the wrong problem."
+  - key: population.customer.salary_day.month_end_min
+    question: "See population.customer.salary_day.month_end_share."
+  - key: population.customer.salary_day.month_end_max
+    question: "See population.customer.salary_day.month_end_share."
+  - key: population.customer.salary_day.month_start_min
+    question: "See population.customer.salary_day.month_end_share."
+  - key: population.customer.salary_day.month_start_max
+    question: "See population.customer.salary_day.month_end_share."
+  - key: population.customer.intent_score_mean
+    question: "Intent is latent and unobservable. Can it be calibrated from voluntary-cancellation rates?"
+  - key: population.customer.intent_score_concentration
+    question: "See population.customer.intent_score_mean."
+  - key: population.customer.has_alt_rail_share
+    question: "Share of customers reachable on a second rail. Needs pilot merchant data."
+  - key: population.customer.upi_app_share.app_a
+    question: "UPI app mix. NPCI publishes app-wise volume; pull it and name the apps rather than shipping placeholders."
+  - key: population.customer.upi_app_share.app_b
+    question: "See population.customer.upi_app_share.app_a."
+  - key: population.customer.upi_app_share.app_c
+    question: "See population.customer.upi_app_share.app_a."
+  - key: population.customer.upi_app_share.app_d
+    question: "See population.customer.upi_app_share.app_a."
+  - key: population.balance.spend_decay_rate.low
+    question: "The whole balance process is unvalidated. The shape (P(insufficient funds) rising with days since credit) is asserted by test; the level is a guess and is fitted in phase 4 against a merchant's observed insufficient-funds rate."
+  - key: population.balance.spend_decay_rate.mid
+    question: "See population.balance.spend_decay_rate.low."
+  - key: population.balance.spend_decay_rate.high
+    question: "See population.balance.spend_decay_rate.low."
+  - key: population.balance.first_week_days
+    question: "See population.balance.spend_decay_rate.low."
+  - key: population.balance.first_week_spend_multiplier
+    question: "See population.balance.spend_decay_rate.low."
+  - key: population.balance.daily_lognormal_sigma.low
+    question: "See population.balance.spend_decay_rate.low. Volatility drives how much a few days of timing can be worth."
+  - key: population.balance.daily_lognormal_sigma.mid
+    question: "See population.balance.daily_lognormal_sigma.low."
+  - key: population.balance.daily_lognormal_sigma.high
+    question: "See population.balance.daily_lognormal_sigma.low."
+  - key: population.balance.cushion_lognormal_sigma
+    question: "What share of a real mandate book runs a near-zero balance? This parameter alone decides the insufficient-funds rate, so no lift number is defensible until it is fitted against a merchant's observed reason-code mix."
+  - key: population.balance.carryover_fraction_mean
+    question: "See population.balance.spend_decay_rate.low."
+  - key: population.balance.carryover_lognormal_sigma
+    question: "See population.balance.spend_decay_rate.low."
+  - key: population.balance.salary_jitter_max_days
+    question: "Is payroll jitter late-only, and how large? Determines how sharp an inferred salary date can be."
+  - key: population.balance.salary_shifts_before_weekend
+    question: "Weekend and bank-holiday behaviour of salary credits. No holiday calendar is modelled at all, which understates late-credit risk."
+  - key: population.mandate.rail_mix.upi_autopay
+    question: "Rail mix by vertical. Needs an NPCI volume file or pilot merchant data."
+  - key: population.mandate.rail_mix.enach
+    question: "See population.mandate.rail_mix.upi_autopay."
+  - key: population.mandate.rail_mix.card_emandate
+    question: "See population.mandate.rail_mix.upi_autopay."
+  - key: population.mandate.ticket_lognormal_sigma
     question: "See book.size."
-  - key: book.customer.spend_decay_rate
-    question: "See book.size. Fitted in phase 4."
-  - key: book.customer.balance_lognormal_sigma
-    question: "See book.size. Fitted in phase 4."
-  - key: book.customer.intent_score_initial
-    question: "See book.size."
-  - key: book.customer.salary_day_min
-    question: "See book.size."
-  - key: book.customer.salary_day_max
-    question: "See book.size."
+  - key: population.mandate.cap_multiple_of_ticket
+    question: "How much headroom do merchants actually set above the ticket? Drives how often MANDATE_AMOUNT_EXCEEDED fires."
+  - key: population.mandate.billing_day_max
+    question: "Real billing days are not uniform over 1..28; they follow signup dates and month boundaries. Replace with a pilot merchant's actual billing-day histogram."
+  - key: population.mandate.max_age_months
+    question: "Book tenure at simulation start. Nothing reads it yet; it will matter once mandate expiry is modelled."
   - key: stub_engine.first_attempt_failure_rate
     question: "Every stub_engine.* key is a phase-2 placeholder. Phase 4 replaces the whole engine."
   - key: stub_engine.reason_mix.insufficient_funds
