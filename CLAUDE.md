@@ -2,7 +2,7 @@
 
 Read `SPEC.md` once at session start. Do not re-read it unless I say the spec changed.
 
-**Current phase: 0 (not started).** Update this line when a phase completes.
+**Current phase: 2 (complete). Next: 3 — population + bank generators.** Update this line when a phase completes.
 
 ## Ground rules
 

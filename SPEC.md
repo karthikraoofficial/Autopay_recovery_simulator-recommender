@@ -156,8 +156,8 @@ class RetryStrategy(Protocol):
 
 ### Strategies to implement, in order
 
-1. **`FixedSchedule`** (baseline) — T+1, T+3, T+7. This is what most merchants do today. Everything is measured against this.
-2. **`NoRetry`** (floor) — establishes natural recovery rate.
+1. **`FixedSchedule`** (baseline) — T+1, T+3, T+7. This is what most merchants do today. Everything is measured against this. **Built in phase 2**, because the harness cannot be tested without a strategy to measure. It must never acquire reason-code, bank, or salary logic: if the baseline moves, every previously reported lift number silently changes meaning.
+2. **`NoRetry`** (floor) — establishes natural recovery rate. **Built in phase 2**, same reason.
 3. **`ReasonAware`** — branch on reason code. Technical decline → retry in 2 hours. Insufficient funds → wait. Hard decline → stop.
 4. **`SalaryAware`** — infer salary credit day from historical success timestamps, schedule the retry to land 0–2 days after predicted credit.
 5. **`BankAware`** — avoid each bank's known downtime windows and low-uptime hours; prefer high-success time-of-day slots.
@@ -255,11 +255,11 @@ rebound/
 |---|---|---|
 | 0 | Repo, config loader, `assumptions.yaml` skeleton | `pytest` runs, config loads |
 | 1 | Domain model + reason codes | Types are complete, guardrail tests written and **failing** |
-| 2 | Evaluation harness (against a stub engine) | Determinism + no-money-created tests pass |
+| 2 | Evaluation harness (against a stub engine), plus the two baselines `FixedSchedule` and `NoRetry` | Determinism + no-money-created tests pass |
 | 3 | Population + bank generators | Salary-date distribution reproduces expected shape |
 | 4 | Failure engine | Reason-code mix is tunable to a target distribution |
 | 5 | Compliance guard | Violating strategies are blocked, logged, tested |
-| 6 | Strategies 1–3 | `ReasonAware` beats `FixedSchedule` with non-overlapping CIs |
+| 6 | Strategy 3 (`ReasonAware`); 1 and 2 already exist from phase 2 | `ReasonAware` beats `FixedSchedule` with non-overlapping CIs |
 | 7 | Strategies 4–6 | Sensitivity analysis run and documented |
 | 8 | API + dashboard | End-to-end from six inputs to one chart |
 | 9 | `MLRanked` | Only if 4–6 plateau |

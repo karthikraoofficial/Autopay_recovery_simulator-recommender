@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+from pydantic import AwareDatetime, ConfigDict, Field
+
+from rebound.domain.entities import AttemptOutcome, Bank, Customer, DomainModel, Mandate, Paise
+from rebound.domain.reason_codes import ReasonCode
+
+
+class AttemptRequest(DomainModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    mandate: Mandate
+    customer: Customer
+    bank: Bank
+    cycle_id: str = Field(min_length=1)
+    attempt_number: int = Field(ge=1)
+    scheduled_at: AwareDatetime
+    amount_paise: Paise = Field(gt=0)
+    original_reason_code: ReasonCode | None = None
+    days_since_original: int = Field(default=0, ge=0)
+
+
+class AttemptResult(DomainModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    outcome: AttemptOutcome
+    reason_code: ReasonCode | None = None
+    executed_at: AwareDatetime
+    induced_revocation: bool = False
+
+
+@runtime_checkable
+class PaymentEngine(Protocol):
+    """Phase 4's failure engine replaces the phase-2 stub behind this."""
+
+    def execute(self, request: AttemptRequest) -> AttemptResult: ...

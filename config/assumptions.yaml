@@ -39,6 +39,297 @@ assumptions:
     confidence: estimate
     notes: "Higher cap applies to select categories. Verify against current NPCI UPI Autopay circular before any external use."
 
+  harness.max_attempts_per_cycle:
+    value: 4
+    unit: count
+    source: "Runaway-loop stop for the phase-2 harness. Not a regulatory cap."
+    confidence: estimate
+    notes: "Phase 5 replaces this with a per-rail compliance cap. Until then it silently truncates chains."
+
+  harness.bootstrap_resamples:
+    value: 2000
+    unit: count
+    source: "Conventional bootstrap resample count. Not derived from a target CI width."
+    confidence: estimate
+    notes: "Raise until interval endpoints stop moving in the third significant figure."
+
+  harness.confidence_level:
+    value: 0.90
+    unit: ratio
+    source: "Chosen for a sales context, not a scientific one. 0.95 is the stricter default."
+    confidence: estimate
+    notes: "Widen to 0.95 before any external claim."
+
+  harness.baseline_strategy:
+    value: "FixedSchedule"
+    unit: name
+    source: "SPEC.md §4: everything is measured against what merchants do today."
+    confidence: primary
+    notes: "Paired lift intervals are computed as strategy minus this."
+
+  strategy.fixed_schedule.retry_offsets_days:
+    value: [1, 3, 7]
+    unit: days
+    source: "SPEC.md §4.1 states T+1, T+3, T+7 as the common merchant default."
+    confidence: practitioner
+    notes: "Frozen by definition. Changing it changes what the baseline means, not how good it is."
+
+  # --- Phase-2 placeholder book. Phase 3 replaces every key below this line -----
+  # These exist so the harness has a population to measure. They are not claims
+  # about the Indian market and must not be shown to a merchant.
+
+  book.size:
+    value: 2000
+    unit: count
+    source: "Chosen for test runtime. No merchant basis."
+    confidence: estimate
+
+  book.months:
+    value: 12
+    unit: count
+    source: "SPEC.md §6 renders a 12-month chart."
+    confidence: estimate
+
+  book.start_date:
+    value: "2026-01-01"
+    unit: date
+    source: "Simulation epoch. Arbitrary, but results depend on it via weekday alignment."
+    confidence: estimate
+
+  book.avg_ticket_paise:
+    value: 49900
+    unit: paise
+    source: "Placeholder subscription ticket. No merchant basis."
+    confidence: estimate
+
+  book.ticket_lognormal_sigma:
+    value: 0.35
+    unit: ratio
+    source: "Placeholder dispersion of ticket size across the book."
+    confidence: estimate
+
+  book.rail_mix.upi_autopay:
+    value: 0.55
+    unit: ratio
+    source: "Placeholder rail mix. No NPCI volume file read."
+    confidence: estimate
+
+  book.rail_mix.enach:
+    value: 0.30
+    unit: ratio
+    source: "Placeholder rail mix. No NPCI volume file read."
+    confidence: estimate
+
+  book.rail_mix.card_emandate:
+    value: 0.15
+    unit: ratio
+    source: "Placeholder rail mix. No NPCI volume file read."
+    confidence: estimate
+
+  book.mandate_cap_multiple_of_ticket:
+    value: 3.0
+    unit: ratio
+    source: "Placeholder. Merchants typically set headroom above the ticket."
+    confidence: estimate
+
+  book.bank_count:
+    value: 12
+    unit: count
+    source: "Placeholder. Real books concentrate in far fewer banks."
+    confidence: estimate
+
+  book.bank.td_rate_min:
+    value: 0.005
+    unit: ratio
+    source: "Placeholder range for per-bank technical decline rate."
+    confidence: estimate
+
+  book.bank.td_rate_max:
+    value: 0.045
+    unit: ratio
+    source: "Placeholder range for per-bank technical decline rate."
+    confidence: estimate
+
+  book.bank.uptime_min:
+    value: 0.90
+    unit: ratio
+    source: "Placeholder worst hourly uptime."
+    confidence: estimate
+
+  book.bank.uptime_max:
+    value: 0.999
+    unit: ratio
+    source: "Placeholder best hourly uptime."
+    confidence: estimate
+
+  book.bank.batch_cutoff_hour:
+    value: 17
+    unit: hour_of_day
+    source: "Placeholder eNACH presentation cutoff."
+    confidence: estimate
+
+  book.bank.return_charge_paise:
+    value: 59000
+    unit: paise
+    source: "Placeholder bounce charge levied on eNACH return."
+    confidence: estimate
+
+  book.customer.income_multiple_of_ticket:
+    value: 90.0
+    unit: ratio
+    source: "Placeholder link between subscription ticket and monthly income."
+    confidence: estimate
+
+  book.customer.spend_decay_rate:
+    value: 0.09
+    unit: ratio_per_day
+    source: "Placeholder. Real value is fitted in phase 4."
+    confidence: estimate
+
+  book.customer.balance_lognormal_sigma:
+    value: 0.45
+    unit: ratio
+    source: "Placeholder. Real value is fitted in phase 4."
+    confidence: estimate
+
+  book.customer.income_band_low_multiple:
+    value: 0.75
+    unit: ratio
+    source: "Placeholder cut, as a multiple of median income, below which a customer is LOW band."
+    confidence: estimate
+
+  book.customer.income_band_high_multiple:
+    value: 1.5
+    unit: ratio
+    source: "Placeholder cut, as a multiple of median income, above which a customer is HIGH band."
+    confidence: estimate
+
+  book.customer.intent_score_initial:
+    value: 0.90
+    unit: ratio
+    source: "Placeholder starting intent. Unobservable in reality."
+    confidence: estimate
+
+  book.customer.salary_day_min:
+    value: 1
+    unit: day_of_month
+    source: "Placeholder. Indian salary credits cluster at month start."
+    confidence: estimate
+
+  book.customer.salary_day_max:
+    value: 7
+    unit: day_of_month
+    source: "Placeholder. Indian salary credits cluster at month start."
+    confidence: estimate
+
+  # --- Phase-2 stub engine. Phase 4 replaces every key below this line ---------
+  # The stub returns scripted outcomes so the harness can be tested before the
+  # failure engine exists. None of these are measured.
+
+  stub_engine.first_attempt_failure_rate:
+    value: 0.12
+    unit: ratio
+    source: "Placeholder overall first-attempt failure rate."
+    confidence: estimate
+
+  stub_engine.reason_mix.insufficient_funds:
+    value: 0.55
+    unit: ratio
+    source: "Placeholder reason-code mix. SPEC.md §11 names this the largest uncertainty in the model."
+    confidence: estimate
+
+  stub_engine.reason_mix.technical_decline:
+    value: 0.15
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.bank_unavailable:
+    value: 0.08
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.mandate_revoked:
+    value: 0.07
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.limit_exceeded:
+    value: 0.06
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.mandate_expired:
+    value: 0.04
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.invalid_pin:
+    value: 0.02
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.mandate_amount_exceeded:
+    value: 0.02
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.reason_mix.account_frozen:
+    value: 0.01
+    unit: ratio
+    source: "Placeholder reason-code mix."
+    confidence: estimate
+
+  stub_engine.retry_success_base.insufficient_funds:
+    value: 0.28
+    unit: ratio
+    source: "Placeholder P(retry succeeds) on day 1 after this reason code."
+    confidence: estimate
+
+  stub_engine.retry_success_base.limit_exceeded:
+    value: 0.35
+    unit: ratio
+    source: "Placeholder P(retry succeeds) on day 1 after this reason code."
+    confidence: estimate
+
+  stub_engine.retry_success_base.technical_decline:
+    value: 0.80
+    unit: ratio
+    source: "Placeholder P(retry succeeds) on day 1 after this reason code."
+    confidence: estimate
+
+  stub_engine.retry_success_base.bank_unavailable:
+    value: 0.75
+    unit: ratio
+    source: "Placeholder P(retry succeeds) on day 1 after this reason code."
+    confidence: estimate
+
+  stub_engine.retry_success_base.invalid_pin:
+    value: 0.15
+    unit: ratio
+    source: "Placeholder P(retry succeeds) on day 1 after this reason code."
+    confidence: estimate
+
+  stub_engine.retry_success_decay_per_day:
+    value: 0.04
+    unit: ratio_per_day
+    source: "Placeholder. Recovery probability decays the longer a retry is delayed."
+    confidence: estimate
+    notes: "Deliberately shallow so no timing strategy can win on the stub alone."
+
+  stub_engine.induced_revocation_prob_per_retry:
+    value: 0.015
+    unit: ratio
+    source: "Placeholder. SPEC.md §2.3 requires retry aggression to carry a cost."
+    confidence: estimate
+    notes: "If this is zero, every strategy converges on retry-infinitely, which is the failure mode §2.3 warns about."
+
 # Everything at confidence: estimate must be listed here, plus the §11 items
 # that do not yet have an entry above.
 open_questions:
@@ -48,6 +339,94 @@ open_questions:
     question: "How many seeds until the CI is stable? Determine empirically at phase 2."
   - key: rail.upi_autopay.mandate_cap_default_inr
     question: "Current UPI Autopay default cap and the category list that exceeds it."
+  - key: harness.max_attempts_per_cycle
+    question: "Replace with the real per-rail cap once phase 5 establishes whether it is NPCI or PG policy."
+  - key: harness.bootstrap_resamples
+    question: "How many resamples until interval endpoints are stable?"
+  - key: harness.confidence_level
+    question: "90% or 95% for external claims? 95% is the defensible choice."
+  - key: book.size
+    question: "Every book.* key is a phase-2 placeholder. Phase 3 replaces them with generators fitted to something real."
+  - key: book.months
+    question: "See book.size."
+  - key: book.start_date
+    question: "See book.size."
+  - key: book.customer.income_band_low_multiple
+    question: "See book.size."
+  - key: book.customer.income_band_high_multiple
+    question: "See book.size."
+  - key: book.avg_ticket_paise
+    question: "See book.size."
+  - key: book.ticket_lognormal_sigma
+    question: "See book.size."
+  - key: book.rail_mix.upi_autopay
+    question: "Rail mix by vertical. Needs an NPCI volume file or pilot merchant data."
+  - key: book.rail_mix.enach
+    question: "See book.rail_mix.upi_autopay."
+  - key: book.rail_mix.card_emandate
+    question: "See book.rail_mix.upi_autopay."
+  - key: book.mandate_cap_multiple_of_ticket
+    question: "See book.size."
+  - key: book.bank_count
+    question: "See book.size."
+  - key: book.bank.td_rate_min
+    question: "NPCI publishes per-bank technical-decline rates monthly. Pull the file."
+  - key: book.bank.td_rate_max
+    question: "See book.bank.td_rate_min."
+  - key: book.bank.uptime_min
+    question: "See book.bank.td_rate_min."
+  - key: book.bank.uptime_max
+    question: "See book.bank.td_rate_min."
+  - key: book.bank.batch_cutoff_hour
+    question: "eNACH clearing calendar and presentation cutoffs."
+  - key: book.bank.return_charge_paise
+    question: "Actual bank return charges on eNACH bounce."
+  - key: book.customer.income_multiple_of_ticket
+    question: "See book.size."
+  - key: book.customer.spend_decay_rate
+    question: "See book.size. Fitted in phase 4."
+  - key: book.customer.balance_lognormal_sigma
+    question: "See book.size. Fitted in phase 4."
+  - key: book.customer.intent_score_initial
+    question: "See book.size."
+  - key: book.customer.salary_day_min
+    question: "See book.size."
+  - key: book.customer.salary_day_max
+    question: "See book.size."
+  - key: stub_engine.first_attempt_failure_rate
+    question: "Every stub_engine.* key is a phase-2 placeholder. Phase 4 replaces the whole engine."
+  - key: stub_engine.reason_mix.insufficient_funds
+    question: "Realistic reason-code mix by vertical. Unknown until a pilot merchant shares data."
+  - key: stub_engine.reason_mix.technical_decline
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.bank_unavailable
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.mandate_revoked
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.limit_exceeded
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.mandate_expired
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.invalid_pin
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.mandate_amount_exceeded
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.reason_mix.account_frozen
+    question: "See stub_engine.reason_mix.insufficient_funds."
+  - key: stub_engine.retry_success_base.insufficient_funds
+    question: "See stub_engine.first_attempt_failure_rate."
+  - key: stub_engine.retry_success_base.limit_exceeded
+    question: "See stub_engine.first_attempt_failure_rate."
+  - key: stub_engine.retry_success_base.technical_decline
+    question: "See stub_engine.first_attempt_failure_rate."
+  - key: stub_engine.retry_success_base.bank_unavailable
+    question: "See stub_engine.first_attempt_failure_rate."
+  - key: stub_engine.retry_success_base.invalid_pin
+    question: "See stub_engine.first_attempt_failure_rate."
+  - key: stub_engine.retry_success_decay_per_day
+    question: "See stub_engine.first_attempt_failure_rate."
+  - key: stub_engine.induced_revocation_prob_per_retry
+    question: "Real cost of retry aggression. Needs pilot merchant churn data."
   - key: null
     question: "Current RBI e-mandate AFA threshold and pre-debit notification rules (latest circular, not blog summaries)."
   - key: null

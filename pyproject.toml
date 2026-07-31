@@ -34,3 +34,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+# The guardrail tests import modules that do not exist yet, on purpose. Without this,
+# isort cannot resolve them and sorts them as third-party.
+known-first-party = ["rebound"]

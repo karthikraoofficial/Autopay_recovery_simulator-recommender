@@ -19,7 +19,9 @@ class Confidence(StrEnum):
 class Assumption(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    value: float | int | str | bool
+    # Lists are permitted so an ordered schedule (retry offsets) stays one auditable
+    # entry with one source, rather than being smeared across numbered keys.
+    value: float | int | str | bool | list[int] | list[float]
     unit: str
     source: str
     confidence: Confidence
