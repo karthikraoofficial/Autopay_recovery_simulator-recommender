@@ -1,0 +1,60 @@
+# Every number used anywhere in rebound lives here. Nothing is hardcoded in Python.
+#
+# Entry schema (all fields required except `notes`):
+#   <dotted.key>:
+#     value:      number | string | bool
+#     unit:       str    - "INR", "ratio", "days", "count", "hour_of_day", ...
+#     source:     str    - where the number came from. If it is not from a
+#                          document I can open, say so plainly. Never cite a
+#                          circular that has not been read.
+#     confidence: primary | practitioner | estimate
+#     notes:      str    - optional; what would change this number
+#
+# confidence levels:
+#   primary      - taken from an RBI/NPCI circular or a published NPCI data file
+#   practitioner - stated by someone operating real mandate volume
+#   estimate     - our guess. Must also appear in open_questions below.
+
+version: 1
+
+assumptions:
+  harness.performance_fee_rate:
+    value: 0.15
+    unit: ratio
+    source: "SPEC.md §5.1 default. Commercial parameter, not a measured quantity."
+    confidence: estimate
+    notes: "Set per merchant contract. Drives the net-to-merchant headline directly."
+
+  harness.bootstrap_seeds:
+    value: 50
+    unit: count
+    source: "SPEC.md §5.1 default. Chosen for runtime, not from a power calculation."
+    confidence: estimate
+    notes: "Raise until confidence intervals stop moving between runs."
+
+  rail.upi_autopay.mandate_cap_default_inr:
+    value: 15000
+    unit: INR
+    source: "SPEC.md §1.1, which itself flags this as unverified. No circular read."
+    confidence: estimate
+    notes: "Higher cap applies to select categories. Verify against current NPCI UPI Autopay circular before any external use."
+
+# Everything at confidence: estimate must be listed here, plus the §11 items
+# that do not yet have an entry above.
+open_questions:
+  - key: harness.performance_fee_rate
+    question: "What fee rate do we actually intend to quote?"
+  - key: harness.bootstrap_seeds
+    question: "How many seeds until the CI is stable? Determine empirically at phase 2."
+  - key: rail.upi_autopay.mandate_cap_default_inr
+    question: "Current UPI Autopay default cap and the category list that exceeds it."
+  - key: null
+    question: "Current RBI e-mandate AFA threshold and pre-debit notification rules (latest circular, not blog summaries)."
+  - key: null
+    question: "NPCI per-bank technical-decline rate and uptime — pull the published monthly file."
+  - key: null
+    question: "Retry attempt caps per rail — hard NPCI limit, or PG policy?"
+  - key: null
+    question: "eNACH clearing calendar and presentation cutoffs."
+  - key: null
+    question: "Realistic reason-code mix by vertical. Unknown until a pilot merchant shares data; largest uncertainty in the model."
