@@ -14,6 +14,11 @@ from rebound.domain.entities import (
 from rebound.domain.reason_codes import ReasonCode
 from rebound.harness.metrics import StrategyMetrics, combine, summarise
 from rebound.harness.runner import run_experiment, run_paired
+
+# These are harness unit tests: they test the runner, not the engine, so they pin the
+# deterministic phase-2 ScriptedEngine explicitly rather than following the default.
+# Integration-level runs take whatever the default engine is.
+from rebound.harness.stub_engine import ScriptedEngine
 from rebound.population.book import generate_book
 from rebound.strategies.fixed_schedule import FixedSchedule
 from rebound.strategies.no_retry import NoRetry
@@ -112,7 +117,9 @@ def test_metrics_carry_no_floats() -> None:
 
 
 def test_no_retry_recovers_nothing(small: Assumptions) -> None:
-    report = run_paired(generate_book(small, SEED), [NoRetry()], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED), [NoRetry()], SEED, small, engine_factory=ScriptedEngine
+    )
     metrics = report.for_strategy("NoRetry")
     assert metrics.episodes > 0
     assert metrics.recovered_episodes == 0
@@ -120,7 +127,13 @@ def test_no_retry_recovers_nothing(small: Assumptions) -> None:
 
 
 def test_fixed_schedule_retries_land_on_t1_t3_t7(small: Assumptions) -> None:
-    report = run_paired(generate_book(small, SEED), [FixedSchedule(small)], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED),
+        [FixedSchedule(small)],
+        SEED,
+        small,
+        engine_factory=ScriptedEngine,
+    )
     metrics = report.for_strategy("FixedSchedule")
     assert metrics.retry_attempts > 0
     assert metrics.recovered_episodes > 0
@@ -128,7 +141,13 @@ def test_fixed_schedule_retries_land_on_t1_t3_t7(small: Assumptions) -> None:
 
 
 def test_fixed_schedule_beats_no_retry_on_the_same_population(small: Assumptions) -> None:
-    report = run_paired(generate_book(small, SEED), [NoRetry(), FixedSchedule(small)], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED),
+        [NoRetry(), FixedSchedule(small)],
+        SEED,
+        small,
+        engine_factory=ScriptedEngine,
+    )
     assert report.for_strategy("NoRetry").episodes == report.for_strategy("FixedSchedule").episodes
     assert (
         report.for_strategy("NoRetry").recovery_rate
@@ -139,13 +158,25 @@ def test_fixed_schedule_beats_no_retry_on_the_same_population(small: Assumptions
 def test_no_attempt_follows_a_hard_decline(small: Assumptions) -> None:
     """The domain model refuses to build such an episode, so a violation would surface
     as a ValidationError during the run rather than as a bad number at the end."""
-    report = run_paired(generate_book(small, SEED), [FixedSchedule(small)], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED),
+        [FixedSchedule(small)],
+        SEED,
+        small,
+        engine_factory=ScriptedEngine,
+    )
     assert report.for_strategy("FixedSchedule").episodes > 0
 
 
 def test_retry_aggression_induces_revocations(small: Assumptions) -> None:
     """SPEC §2.3: if this is zero, the harness cannot see the downside of retrying."""
-    report = run_paired(generate_book(small, SEED), [NoRetry(), FixedSchedule(small)], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED),
+        [NoRetry(), FixedSchedule(small)],
+        SEED,
+        small,
+        engine_factory=ScriptedEngine,
+    )
     assert report.for_strategy("NoRetry").induced_revocations == 0
     assert report.for_strategy("FixedSchedule").induced_revocations > 0
 
@@ -161,13 +192,21 @@ def test_attempt_cap_is_respected(small: Assumptions) -> None:
             }
         }
     )
-    report = run_paired(generate_book(capped, SEED), [FixedSchedule(capped)], SEED, capped)
+    report = run_paired(
+        generate_book(capped, SEED),
+        [FixedSchedule(capped)],
+        SEED,
+        capped,
+        engine_factory=ScriptedEngine,
+    )
     metrics = report.for_strategy("FixedSchedule")
     assert metrics.retry_attempts <= metrics.episodes
 
 
 def test_unknown_strategy_lookup_names_itself(small: Assumptions) -> None:
-    report = run_paired(generate_book(small, SEED), [NoRetry()], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED), [NoRetry()], SEED, small, engine_factory=ScriptedEngine
+    )
     with pytest.raises(KeyError, match="Nope"):
         report.for_strategy("Nope")
 
@@ -178,7 +217,9 @@ def test_unknown_strategy_lookup_names_itself(small: Assumptions) -> None:
 def test_experiment_reports_an_interval_for_every_metric_and_strategy(
     small: Assumptions,
 ) -> None:
-    report = run_experiment([NoRetry(), FixedSchedule(small)], SEED, small, n_seeds=4)
+    report = run_experiment(
+        [NoRetry(), FixedSchedule(small)], SEED, small, n_seeds=4, engine_factory=ScriptedEngine
+    )
     assert len(report.seeds) == 4
     for name in report.strategies:
         metrics = {i.metric for i in report.intervals_for(name) if i.vs_baseline is None}
@@ -187,14 +228,18 @@ def test_experiment_reports_an_interval_for_every_metric_and_strategy(
 
 
 def test_intervals_bracket_their_point_estimate(small: Assumptions) -> None:
-    report = run_experiment([NoRetry(), FixedSchedule(small)], SEED, small, n_seeds=4)
+    report = run_experiment(
+        [NoRetry(), FixedSchedule(small)], SEED, small, n_seeds=4, engine_factory=ScriptedEngine
+    )
     assert report.intervals
     for interval in report.intervals:
         assert interval.low <= interval.point <= interval.high
 
 
 def test_paired_lift_is_reported_against_the_baseline(small: Assumptions) -> None:
-    report = run_experiment([NoRetry(), FixedSchedule(small)], SEED, small, n_seeds=4)
+    report = run_experiment(
+        [NoRetry(), FixedSchedule(small)], SEED, small, n_seeds=4, engine_factory=ScriptedEngine
+    )
     lift = [
         i
         for i in report.intervals_for("NoRetry")
@@ -207,7 +252,9 @@ def test_paired_lift_is_reported_against_the_baseline(small: Assumptions) -> Non
 def test_single_seed_run_carries_no_intervals(small: Assumptions) -> None:
     """One seed cannot support a bootstrap over seeds. Better to report nothing than to
     report an interval of width zero and have someone quote it."""
-    report = run_paired(generate_book(small, SEED), [NoRetry()], SEED, small)
+    report = run_paired(
+        generate_book(small, SEED), [NoRetry()], SEED, small, engine_factory=ScriptedEngine
+    )
     assert report.intervals == ()
 
 

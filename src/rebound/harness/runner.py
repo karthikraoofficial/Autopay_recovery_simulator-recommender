@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from pydantic import ConfigDict, Field
@@ -27,6 +27,11 @@ from rebound.harness.metrics import StrategyMetrics, combine, summarise
 from rebound.harness.stub_engine import ScriptedEngine
 from rebound.population.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
 from rebound.strategies.base import CustomerObservable, ProposedRetry, RetryStrategy
+
+
+# Built fresh per strategy, so an engine that memoises draws cannot leak one strategy's
+# probes into another's results.
+EngineFactory = Callable[[Assumptions, int], PaymentEngine]
 
 
 class SeedResult(DomainModel):
@@ -230,15 +235,21 @@ def run_paired(
     strategies: Sequence[RetryStrategy],
     seed: int,
     assumptions: Assumptions | None = None,
+    engine_factory: EngineFactory = ScriptedEngine,
 ) -> HarnessReport:
     """Every strategy sees a deep copy of the same book and the same engine seed, so the
     populations are identical and the outcomes are common random numbers. Differences
-    between strategies are timing, never sampling."""
+    between strategies are timing, never sampling.
+
+    Each strategy gets its own freshly constructed engine, not a shared one: engines
+    memoise draws, and a shared instance would leak one strategy's probes into another's
+    results.
+    """
     if not strategies:
         raise ValueError("run_paired needs at least one strategy")
     assumptions = assumptions or load_assumptions()
     metrics = tuple(
-        _run_strategy(s, copy.deepcopy(book), ScriptedEngine(assumptions, seed), assumptions)
+        _run_strategy(s, copy.deepcopy(book), engine_factory(assumptions, seed), assumptions)
         for s in strategies
     )
     seed_result = SeedResult(seed=seed, metrics=metrics)
@@ -250,6 +261,7 @@ def run_experiment(
     master_seed: int,
     assumptions: Assumptions | None = None,
     n_seeds: int | None = None,
+    engine_factory: EngineFactory = ScriptedEngine,
 ) -> HarnessReport:
     """SPEC §5.1: bootstrap confidence intervals over N seeds. `run_paired` is the single
     seed case and carries no intervals — one seed cannot support one."""
@@ -259,7 +271,7 @@ def run_experiment(
     per_seed = []
     for seed in seeds:
         book = generate_book(assumptions, seed)
-        single = run_paired(book, strategies, seed, assumptions)
+        single = run_paired(book, strategies, seed, assumptions, engine_factory)
         per_seed.append(single.per_seed[0])
     return _report(master_seed, tuple(per_seed), [s.name for s in strategies], assumptions)
 
