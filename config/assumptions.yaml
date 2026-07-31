@@ -475,6 +475,125 @@ assumptions:
     source: "Placeholder oldest mandate at simulation start. Sets book tenure, which nothing currently reads."
     confidence: estimate
 
+  # --- Failure engine (SPEC §2.2) -------------------------------------------------
+  # Phase 4. The check order itself is fixed in code, not here; these are the rates
+  # each check fires at. None is measured. `engine/calibration.py` reports how far the
+  # mix these produce lands from a target distribution.
+
+  engine.rail_technical_multiplier.upi_autopay:
+    value: 1.00
+    unit: ratio
+    source: "Reference rail. SPEC.md §1.1 calls UPI Autopay real-time and stateless, with the highest failure rate, so the per-bank uptime and technical-decline rates are applied to it unscaled."
+    confidence: estimate
+
+  engine.rail_technical_multiplier.enach:
+    value: 0.60
+    unit: ratio
+    source: "Guess. SPEC.md §1.1 says eNACH has higher execution stability than UPI, but gives no figure and none has been measured."
+    confidence: estimate
+
+  engine.rail_technical_multiplier.card_emandate:
+    value: 0.35
+    unit: ratio
+    source: "Guess. SPEC.md §1.1 says card e-mandate has the lowest execution failure, but gives no figure and none has been measured."
+    confidence: estimate
+    notes: "The gap between the three rail multipliers is what makes rail choice matter to a strategy. It is invented, so any per-rail finding is a finding about this number."
+
+  engine.mandate_expiry_hazard_per_cycle:
+    value: 0.0015
+    unit: ratio
+    source: "Guess at the per-billing-cycle chance a mandate reaches its expiry and needs re-authorisation. Mandates carry no expiry date in the domain model, so expiry is modelled as a hazard rather than a date."
+    confidence: estimate
+    notes: "Drawn per cycle, so it persists across every retry in that cycle rather than flickering."
+
+  engine.account_frozen_hazard_per_month:
+    value: 0.0006
+    unit: ratio
+    source: "Guess at the monthly chance a customer's account is frozen. No basis."
+    confidence: estimate
+
+  engine.daily_limit_paise.upi_autopay:
+    value: 10000000
+    unit: paise
+    source: "₹1,00,000, the commonly cited UPI per-day limit. Not read from an NPCI circular, and the autopay-specific limit may differ."
+    confidence: estimate
+
+  engine.daily_limit_paise.enach:
+    value: 100000000
+    unit: paise
+    source: "Guess. Batch-cleared eNACH is not obviously subject to a per-day customer limit at all; a high value here effectively disables the check for this rail."
+    confidence: estimate
+
+  engine.daily_limit_paise.card_emandate:
+    value: 50000000
+    unit: paise
+    source: "Guess at a card daily spend ceiling. Varies per issuer and per customer; a single number for the whole book is a simplification."
+    confidence: estimate
+
+  engine.daily_limit_consumption_share_mean:
+    value: 0.15
+    unit: ratio
+    source: "Guess at the share of a customer's daily rail limit already consumed by their own spending when the mandate debit arrives. Without this the limit check could never fire for a small ticket."
+    confidence: estimate
+
+  engine.daily_limit_consumption_lognormal_sigma:
+    value: 0.85
+    unit: ratio
+    source: "Guess. Wide, because LIMIT_EXCEEDED only fires in the tail where a customer has nearly exhausted the limit, so the tail is the whole mechanism. Narrowed from an initial 1.10 on face validity: that value made daily-limit exhaustion the second-largest failure category for a Rs 499 subscription, which is not credible."
+    confidence: estimate
+    notes: "Narrowed on plausibility, NOT fitted to a target mix. The only target available is itself invented, and tuning to it would produce a config that looks calibrated while being no better grounded."
+
+  # --- Customer reaction model (SPEC §2.3) ----------------------------------------
+  # The cost side of retrying. Without these, every strategy converges on retrying
+  # infinitely, which SPEC.md §2.3 names as the failure mode to avoid.
+
+  engine.reaction.revocation_base_hazard:
+    value: 0.012
+    unit: ratio
+    source: "Guess at the chance a customer voluntarily cancels the mandate after a single failed attempt. Needs pilot merchant churn data."
+    confidence: estimate
+    notes: "This is the price of retry aggression. Set it to zero and unbounded retrying becomes optimal, which is the result SPEC.md §2.3 warns is wrong."
+
+  engine.reaction.revocation_attempt_exponent:
+    value: 1.35
+    unit: exponent
+    source: "Guess. Above 1 makes annoyance compound: the fourth retry costs more than the first. Chosen for that shape, not fitted."
+    confidence: estimate
+    notes: "1.0 makes revocation risk merely proportional to attempts. The super-linear choice is what makes an optimal retry count exist rather than the answer being 'retry to the compliance cap'."
+
+  engine.reaction.revocation_intent_weight:
+    value: 0.8
+    unit: ratio
+    source: "Guess at how much a customer who has lost interest in the service is likelier to cancel than a committed one."
+    confidence: estimate
+
+  engine.reaction.intent_decay_per_failed_attempt:
+    value: 0.06
+    unit: ratio
+    source: "Guess. SPEC.md §2.3 requires intent to decay over an episode; the rate is invented."
+    confidence: estimate
+
+  engine.reaction.topup_probability_not_notified:
+    value: 0.06
+    unit: ratio
+    source: "Guess at the chance a customer with full intent moves money in to cover a debit they were not told about. This is the floor case: a customer topping up by coincidence rather than in response."
+    confidence: estimate
+    notes: "Phase 4 runs entirely on this value, because nothing sets pre_debit_notified until the phase-5 compliance guard does."
+
+  engine.reaction.topup_probability_notified:
+    value: 0.22
+    unit: ratio
+    source: "Guess at the chance a customer with full intent tops up having received a pre-debit notification."
+    confidence: estimate
+    notes: "The ratio of this to topup_probability_not_notified is the single lever behind any lift attributed to notification, so sweep both in the phase-7 sensitivity analysis rather than quoting either alone."
+
+  engine.calibration.seeds:
+    value: 3
+    unit: count
+    source: "Seeds used by the default calibration run. Chosen for runtime, not from a precision target."
+    confidence: estimate
+    notes: "Raise until the observed mix stops moving in the second decimal place."
+
   # --- Phase-2 stub engine. Phase 4 replaces every key below this line ---------
   # The stub returns scripted outcomes so the harness can be tested before the
   # failure engine exists. None of these are measured.
@@ -722,6 +841,40 @@ open_questions:
     question: "Real billing days are not uniform over 1..28; they follow signup dates and month boundaries. Replace with a pilot merchant's actual billing-day histogram."
   - key: population.mandate.max_age_months
     question: "Book tenure at simulation start. Nothing reads it yet; it will matter once mandate expiry is modelled."
+  - key: engine.rail_technical_multiplier.upi_autopay
+    question: "Per-rail execution failure rates. NPCI publishes per-bank technical-decline data; the per-rail split still needs a source."
+  - key: engine.rail_technical_multiplier.enach
+    question: "See engine.rail_technical_multiplier.upi_autopay."
+  - key: engine.rail_technical_multiplier.card_emandate
+    question: "See engine.rail_technical_multiplier.upi_autopay."
+  - key: engine.mandate_expiry_hazard_per_cycle
+    question: "Do mandates carry a real expiry date we should model directly instead of a hazard? UPI Autopay and eNACH mandates have stated validity periods."
+  - key: engine.account_frozen_hazard_per_month
+    question: "Rate of account freezes in a consumer book. Needs pilot merchant data."
+  - key: engine.daily_limit_paise.upi_autopay
+    question: "The UPI per-day limit as it applies to Autopay execution specifically, from an NPCI circular rather than a commonly cited figure."
+  - key: engine.daily_limit_paise.enach
+    question: "Is there a per-day customer limit on eNACH at all?"
+  - key: engine.daily_limit_paise.card_emandate
+    question: "Card daily limits vary per issuer and customer; a single book-wide number is a simplification worth replacing."
+  - key: engine.daily_limit_consumption_share_mean
+    question: "How much of their daily rail limit does a customer typically consume before a mandate debit lands? Unmeasured, and it alone decides whether LIMIT_EXCEEDED ever fires."
+  - key: engine.daily_limit_consumption_lognormal_sigma
+    question: "See engine.daily_limit_consumption_share_mean."
+  - key: engine.reaction.revocation_base_hazard
+    question: "The real cost of retry aggression: how often does an extra retry make a customer cancel? Needs pilot merchant churn data, and it is the number that decides whether aggressive strategies are profitable."
+  - key: engine.reaction.revocation_attempt_exponent
+    question: "Does annoyance compound super-linearly with retry count, or merely accumulate? Determines whether an optimal retry count exists at all."
+  - key: engine.reaction.revocation_intent_weight
+    question: "See engine.reaction.revocation_base_hazard."
+  - key: engine.reaction.intent_decay_per_failed_attempt
+    question: "Intent is latent and unobservable; can its decay be inferred from cancellation timing after failed debits?"
+  - key: engine.reaction.topup_probability_not_notified
+    question: "See engine.reaction.topup_probability_notified."
+  - key: engine.reaction.topup_probability_notified
+    question: "How much does a pre-debit notification actually raise the chance a customer funds the account? The ratio of the notified to un-notified value drives all notification lift and must be swept, not quoted."
+  - key: engine.calibration.seeds
+    question: "How many seeds until the observed reason-code mix is stable to two decimals?"
   - key: stub_engine.first_attempt_failure_rate
     question: "Every stub_engine.* key is a phase-2 placeholder. Phase 4 replaces the whole engine."
   - key: stub_engine.reason_mix.insufficient_funds

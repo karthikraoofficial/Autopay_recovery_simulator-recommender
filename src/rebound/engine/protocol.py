@@ -20,6 +20,10 @@ class AttemptRequest(DomainModel):
     amount_paise: Paise = Field(gt=0)
     original_reason_code: ReasonCode | None = None
     days_since_original: int = Field(default=0, ge=0)
+    # SPEC §2.3: a notified customer is likelier to top up before the debit lands.
+    # Nothing sets this yet — the phase-5 compliance guard owns pre-debit notification —
+    # so every phase-4 number is the un-notified floor, not a full-system estimate.
+    pre_debit_notified: bool = False
 
 
 class AttemptResult(DomainModel):
