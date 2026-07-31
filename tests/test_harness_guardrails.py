@@ -9,7 +9,7 @@ missing module fails that one test rather than erroring collection for the whole
 
 The names imported below are the API commitment for phase 2:
 
-    rebound.harness.book      -> generate_book(assumptions, seed) -> Book
+    rebound.population.book   -> generate_book(assumptions, seed) -> Book
     rebound.harness.runner    -> run_paired(book, strategies, seed) -> HarnessReport
     HarnessReport             -> .output_hash, .for_strategy(name) -> StrategyMetrics
     StrategyMetrics           -> .recovery_rate, .gross_recovered_paise,
@@ -37,8 +37,8 @@ def _assumptions():
 def test_retry_after_hard_decline_is_rejected_by_the_harness() -> None:
     """SPEC §1.3/§5.2: a strategy proposing a retry after a hard decline must not run."""
     from rebound.compliance.errors import HardDeclineViolation
-    from rebound.harness.book import generate_book
     from rebound.harness.runner import run_paired
+    from rebound.population.book import generate_book
     from rebound.strategies.base import ProposedRetry
 
     class RetriesAnything:
@@ -67,8 +67,8 @@ def test_retry_after_hard_decline_is_rejected_by_the_harness() -> None:
 
 def test_strategy_cannot_read_true_balance_or_true_salary_day() -> None:
     """SPEC §4: CustomerObservable exposes only what a real merchant could know."""
-    from rebound.harness.book import generate_book
     from rebound.harness.runner import run_paired
+    from rebound.population.book import generate_book
     from rebound.strategies.base import CustomerObservable, ProposedRetry
 
     forbidden = ("balance_paise", "balance", "balance_process", "salary_credit_day")
@@ -98,8 +98,8 @@ def test_strategy_cannot_read_true_balance_or_true_salary_day() -> None:
 
 def test_same_seed_gives_an_identical_output_hash() -> None:
     """SPEC §0.5: same seed + same config = byte-identical results."""
-    from rebound.harness.book import generate_book
     from rebound.harness.runner import run_paired
+    from rebound.population.book import generate_book
     from rebound.strategies.fixed_schedule import FixedSchedule
 
     assumptions = _assumptions()
@@ -110,8 +110,8 @@ def test_same_seed_gives_an_identical_output_hash() -> None:
 
 def test_recovery_rate_ordering_no_retry_le_fixed_le_blended() -> None:
     """Sanity ordering. If this inverts, the engine or the harness is wrong, not the strategy."""
-    from rebound.harness.book import generate_book
     from rebound.harness.runner import run_paired
+    from rebound.population.book import generate_book
     from rebound.strategies.blended import Blended
     from rebound.strategies.fixed_schedule import FixedSchedule
     from rebound.strategies.no_retry import NoRetry
@@ -129,8 +129,8 @@ def test_total_recovered_never_exceeds_total_failed() -> None:
     keeps applying to strategies that do not exist yet — but only after confirming the
     report actually contains the strategies that were asked for, since a loop over an
     empty or silently-truncated report passes vacuously and proves nothing."""
-    from rebound.harness.book import generate_book
     from rebound.harness.runner import run_paired
+    from rebound.population.book import generate_book
     from rebound.strategies.fixed_schedule import FixedSchedule
     from rebound.strategies.no_retry import NoRetry
 

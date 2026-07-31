@@ -22,10 +22,10 @@ from rebound.domain.entities import (
 )
 from rebound.domain.reason_codes import ReasonCode
 from rebound.engine.protocol import AttemptRequest, AttemptResult, PaymentEngine
-from rebound.harness.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
 from rebound.harness.bootstrap import Interval, paired_intervals
 from rebound.harness.metrics import StrategyMetrics, combine, summarise
 from rebound.harness.stub_engine import ScriptedEngine
+from rebound.population.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
 from rebound.strategies.base import CustomerObservable, ProposedRetry, RetryStrategy
 
 

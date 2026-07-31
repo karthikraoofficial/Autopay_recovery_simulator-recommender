@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from rebound.config import Assumptions
-from rebound.harness.book import generate_book
 from rebound.harness.runner import run_experiment, run_paired
 from rebound.harness.seeding import stream
+from rebound.population.book import generate_book
 from rebound.strategies.fixed_schedule import FixedSchedule
 from rebound.strategies.no_retry import NoRetry
 

@@ -12,9 +12,9 @@ from rebound.domain.entities import (
     RecoveryEpisode,
 )
 from rebound.domain.reason_codes import ReasonCode
-from rebound.harness.book import generate_book
 from rebound.harness.metrics import StrategyMetrics, combine, summarise
 from rebound.harness.runner import run_experiment, run_paired
+from rebound.population.book import generate_book
 from rebound.strategies.fixed_schedule import FixedSchedule
 from rebound.strategies.no_retry import NoRetry
 
