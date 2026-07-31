@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from rebound.config import load_assumptions
-from rebound.domain import DebitAttempt, Mandate
+from rebound.domain import AttemptOutcome, DebitAttempt, Mandate, ReasonCode
 
 SEED = 20260731
 
@@ -37,7 +37,7 @@ def _assumptions():
 def test_retry_after_hard_decline_is_rejected_by_the_harness() -> None:
     """SPEC §1.3/§5.2: a strategy proposing a retry after a hard decline must not run."""
     from rebound.compliance.errors import HardDeclineViolation
-    from rebound.harness.runner import run_paired
+    from rebound.compliance.guard import ComplianceGuard, RetryContext
     from rebound.population.book import generate_book
     from rebound.strategies.base import ProposedRetry
 
@@ -60,9 +60,42 @@ def test_retry_after_hard_decline_is_rejected_by_the_harness() -> None:
                 )
             ]
 
+    # Driven through the guard rather than through run_paired: the runner terminates the
+    # episode on a hard decline as a matter of lifecycle, so it never asks a strategy to
+    # propose against a dead mandate. The guard is the defence-in-depth layer that
+    # catches such a proposal if the runner's check ever regresses, so that is where a
+    # strategy which retries anything has to be pointed.
     book = generate_book(_assumptions(), seed=SEED)
+    mandate = book.mandates[0]
+    customer = {c.id: c for c in book.customers}[mandate.customer_id]
+    bank = {b.id: b for b in book.banks}[customer.bank_id]
+    declined = DebitAttempt(
+        id="a1",
+        mandate_id=mandate.id,
+        scheduled_at=book.start_at,
+        executed_at=book.start_at,
+        amount_paise=49900,
+        outcome=AttemptOutcome.FAILURE,
+        reason_code=ReasonCode.MANDATE_EXPIRED,
+        attempt_number=1,
+        is_retry=False,
+    )
+    proposals = RetriesAnything().propose_retries(
+        failed_attempt=declined,
+        mandate=mandate,
+        customer_view=object(),
+        history=[declined],
+        clock=book.start_at,
+    )
+    context = RetryContext(
+        mandate=mandate,
+        bank=bank,
+        original_attempt=declined,
+        history=(declined,),
+        notified_at=book.start_at - timedelta(hours=24),
+    )
     with pytest.raises(HardDeclineViolation):
-        run_paired(book, [RetriesAnything()], seed=SEED)
+        ComplianceGuard(_assumptions()).review(proposals[0], context)
 
 
 def test_strategy_cannot_read_true_balance_or_true_salary_day() -> None:

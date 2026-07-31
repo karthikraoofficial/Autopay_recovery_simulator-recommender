@@ -4,10 +4,11 @@ import copy
 import hashlib
 import json
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pydantic import ConfigDict, Field
 
+from rebound.compliance.guard import ComplianceGuard, RetryContext
 from rebound.config import Assumptions, load_assumptions
 from rebound.domain.entities import (
     AttemptOutcome,
@@ -96,6 +97,7 @@ def _request(
     amount: int,
     original_reason: ReasonCode | None,
     days_since: int,
+    notified: bool = False,
 ) -> AttemptRequest:
     return AttemptRequest(
         mandate=run.mandate,
@@ -107,6 +109,7 @@ def _request(
         amount_paise=amount,
         original_reason_code=original_reason,
         days_since_original=days_since,
+        pre_debit_notified=notified,
     )
 
 
@@ -125,8 +128,18 @@ def _attempt_from(result: AttemptResult, request: AttemptRequest, attempt_id: st
 
 
 def _next_proposal(
-    strategy: RetryStrategy, run: _MandateRun, attempts: list[DebitAttempt], amount: int
+    strategy: RetryStrategy,
+    run: _MandateRun,
+    attempts: list[DebitAttempt],
+    guard: ComplianceGuard,
+    notified_at: datetime | None,
 ) -> ProposedRetry | None:
+    """Ask the strategy, then put every proposal through the compliance gate.
+
+    SPEC §0.3: the guard is the only path to execution, so a strategy cannot reach the
+    engine with a retry it is not allowed to make. A blocked proposal costs the strategy
+    that choice, not the whole chain — the earliest surviving alternative still runs.
+    """
     view = CustomerObservable.from_customer(
         run.customer, run.mandate, past_attempts=tuple(run.history)
     )
@@ -140,7 +153,14 @@ def _next_proposal(
     valid = [p for p in proposals if p.scheduled_at > attempts[-1].scheduled_at]
     if not valid:
         return None
-    return min(valid, key=lambda p: p.scheduled_at)
+    context = RetryContext(
+        mandate=run.mandate,
+        bank=run.bank,
+        original_attempt=attempts[0],
+        history=tuple(attempts),
+        notified_at=notified_at,
+    )
+    return guard.filter(valid, context)
 
 
 def _run_cycle(
@@ -150,22 +170,32 @@ def _run_cycle(
     cycle_index: int,
     amount: int,
     max_attempts: int,
-) -> tuple[RecoveryEpisode | None, int]:
-    """Returns the episode (None if the first attempt succeeded) and induced revocations."""
+    guard: ComplianceGuard,
+    notice_lead: timedelta,
+) -> tuple[RecoveryEpisode | None, int, int]:
+    """Returns the episode (None if the first attempt succeeded), induced revocations,
+    and whether a hard decline terminated the chain."""
     cycle_id = f"{run.mandate.id}:c{cycle_index:02d}"
     billed_at = _cycle_date(run.book.start_at, run.mandate.created_at.day, cycle_index)
     billed_at = billed_at.replace(hour=run.bank.batch_cutoff_time.hour, minute=0)
-    opening = _request(run, cycle_id, 1, billed_at, amount, None, 0)
+    # The merchant is modelled as compliant: notice goes out exactly the required lead
+    # ahead of the scheduled charge. SPEC §3 requires it, so a merchant who skipped it
+    # could not legally debit at all and is not a scenario worth simulating.
+    notified_at = billed_at - notice_lead
+    opening = _request(run, cycle_id, 1, billed_at, amount, None, 0, notified=True)
     first = engine.execute(opening)
     attempts = [_attempt_from(first, opening, f"{cycle_id}:a1")]
     run.history.extend(attempts)
     if first.outcome is AttemptOutcome.SUCCESS:
-        return None, 0
+        return None, 0, 0
 
     original_reason = first.reason_code
     revocations = 0
+    # SPEC §1.3: a hard decline ends the episode as a matter of lifecycle. The strategy
+    # is never asked, so a reason-blind baseline cannot propose against a dead mandate.
+    # The guard raises on such a proposal as defence in depth, should this regress.
     while len(attempts) < max_attempts and not attempts[-1].is_hard_decline:
-        proposal = _next_proposal(strategy, run, attempts, amount)
+        proposal = _next_proposal(strategy, run, attempts, guard, notified_at)
         if proposal is None:
             break
         days = (proposal.scheduled_at - billed_at).days
@@ -177,6 +207,7 @@ def _run_cycle(
             proposal.amount_paise,
             original_reason,
             max(0, days),
+            notified=True,
         )
         result = engine.execute(request)
         attempt = _attempt_from(result, request, f"{cycle_id}:a{len(attempts) + 1}")
@@ -187,7 +218,8 @@ def _run_cycle(
             run.mandate.status = MandateStatus.REVOKED
         if result.outcome is AttemptOutcome.SUCCESS:
             break
-    return _episode(run, cycle_id, attempts, billed_at), revocations
+    terminated = int(attempts[-1].is_hard_decline)
+    return _episode(run, cycle_id, attempts, billed_at), revocations, terminated
 
 
 def _episode(
@@ -211,10 +243,17 @@ def _run_strategy(
 ) -> StrategyMetrics:
     max_attempts = int(assumptions.value("harness.max_attempts_per_cycle"))
     fee_rate = float(assumptions.value("harness.performance_fee_rate"))
+    notice_lead = timedelta(
+        hours=float(assumptions.value("compliance.pre_debit_notification.lead_hours"))
+    )
+    # One guard per strategy run, so its block log is that strategy's own opportunity
+    # forgone rather than a total shared across the paired comparison.
+    guard = ComplianceGuard(assumptions)
     banks = {b.id: b for b in book.banks}
     customers = {c.id: c for c in book.customers}
     episodes: list[RecoveryEpisode] = []
     revocations = 0
+    terminated = 0
     for mandate in book.mandates:
         customer = customers[mandate.customer_id]
         run = _MandateRun(mandate, customer, banks[customer.bank_id], book)
@@ -222,11 +261,21 @@ def _run_strategy(
         for cycle_index in range(book.months):
             if not mandate.is_debitable:
                 break
-            episode, induced = _run_cycle(strategy, engine, run, cycle_index, amount, max_attempts)
+            episode, induced, stopped = _run_cycle(
+                strategy, engine, run, cycle_index, amount, max_attempts, guard, notice_lead
+            )
             revocations += induced
+            terminated += stopped
             if episode is not None:
                 episodes.append(episode)
-    return summarise(strategy.name, episodes, fee_rate, induced_revocations=revocations)
+    return summarise(
+        strategy.name,
+        episodes,
+        fee_rate,
+        induced_revocations=revocations,
+        compliance_blocks=len(guard.blocks),
+        terminated_hard_decline=terminated,
+    )
 
 
 def run_paired(

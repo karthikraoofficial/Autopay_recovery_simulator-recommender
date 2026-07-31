@@ -277,6 +277,7 @@ Explicitly not building: real PG integration, webhook ingestion, customer messag
 Flag these in `assumptions.yaml` as `confidence: estimate` until verified:
 
 - Current RBI e-mandate AFA threshold and pre-debit notification rules (check the latest circular, not blog summaries)
+- **Does a retry of an already-notified charge require fresh notice? — largest single regulatory risk in the model. Unverified.** The simulator ships assuming it does not (`compliance.pre_debit_notification.retry_inherits_original_notice: true`). If it does, every sub-24h retry is illegal, the fast technical retry disappears, and reported lift falls. Phase 7 must show the headline number under both settings side by side, permanently.
 - NPCI per-bank TD% and uptime — pull the actual monthly published file
 - Retry attempt caps per rail — is there a hard NPCI limit or is it PG policy?
 - eNACH clearing calendar and presentation cutoffs

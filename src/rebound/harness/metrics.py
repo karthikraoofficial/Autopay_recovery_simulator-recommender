@@ -33,6 +33,11 @@ class StrategyMetrics(DomainModel):
     retry_attempts: int = Field(ge=0)
     induced_revocations: int = Field(ge=0)
     compliance_blocks: int = Field(ge=0)
+    # Kept apart from compliance_blocks on purpose. A hard decline ends the episode
+    # as a matter of lifecycle (SPEC §1.3); it is not a retry the merchant wanted and
+    # compliance forbade, so folding it into 'opportunity forgone' would inflate that
+    # number with terminations no policy change could ever release.
+    terminated_hard_decline: int = Field(ge=0)
     days_to_recovery: tuple[int, ...] = ()
 
     @property
@@ -64,6 +69,7 @@ def summarise(
     fee_rate: float,
     induced_revocations: int = 0,
     compliance_blocks: int = 0,
+    terminated_hard_decline: int = 0,
 ) -> StrategyMetrics:
     episodes = tuple(episodes)
     recovered = [e for e in episodes if e.outcome is EpisodeOutcome.RECOVERED]
@@ -79,6 +85,7 @@ def summarise(
         retry_attempts=sum(len(e.retry_attempts) for e in episodes),
         induced_revocations=induced_revocations,
         compliance_blocks=compliance_blocks,
+        terminated_hard_decline=terminated_hard_decline,
         days_to_recovery=tuple(sorted(e.days_to_recovery or 0 for e in recovered)),
     )
 
@@ -98,5 +105,6 @@ def combine(strategy: str, parts: Iterable[StrategyMetrics]) -> StrategyMetrics:
         retry_attempts=sum(p.retry_attempts for p in parts),
         induced_revocations=sum(p.induced_revocations for p in parts),
         compliance_blocks=sum(p.compliance_blocks for p in parts),
+        terminated_hard_decline=sum(p.terminated_hard_decline for p in parts),
         days_to_recovery=tuple(sorted(d for p in parts for d in p.days_to_recovery)),
     )

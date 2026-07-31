@@ -44,7 +44,7 @@ assumptions:
     unit: count
     source: "Runaway-loop stop for the phase-2 harness. Not a regulatory cap."
     confidence: estimate
-    notes: "Phase 5 replaces this with a per-rail compliance cap. Until then it silently truncates chains."
+    notes: "Runaway-loop stop only. The binding limit is now the per-rail compliance.max_retries_per_cycle.* cap, which is lower on every rail, so this should never be what truncates a chain."
 
   harness.bootstrap_resamples:
     value: 2000
@@ -475,6 +475,84 @@ assumptions:
     source: "Placeholder oldest mandate at simulation start. Sets book tenure, which nothing currently reads."
     confidence: estimate
 
+  # --- Compliance guard (SPEC §3) --------------------------------------------------
+  # Phase 5. SPEC.md §11 flags every rule below as unverified: no RBI circular and no
+  # NPCI procedural guideline has been read. These are `estimate` because they encode
+  # our reading of SPEC §3, not because we measured anything, and a lift number that
+  # depends on one of them is a claim about our reading rather than about the law.
+  #
+  # The two absolute rules carry a citation entry rather than a parameter. They are not
+  # toggles: SPEC §1.3 says hard declines terminate retry chains with no exceptions and
+  # no config flag to disable, so the guard refuses to start if either is set to
+  # anything but "absolute".
+
+  compliance.hard_decline_stop.rule:
+    value: "absolute"
+    unit: rule
+    source: "SPEC.md §1.3 and §3, which state this without qualification. Not a measured quantity and not a switch."
+    confidence: primary
+    notes: "A citation, not a parameter. ComplianceGuard raises at construction if this is weakened, so the rule cannot be turned off by editing config."
+
+  compliance.revocation_respect.rule:
+    value: "absolute"
+    unit: rule
+    source: "SPEC.md §3: no attempt against a REVOKED mandate under any circumstance."
+    confidence: primary
+    notes: "A citation, not a parameter. See compliance.hard_decline_stop.rule."
+
+  compliance.amount_integrity.rule:
+    value: "equal_to_original"
+    unit: rule
+    source: "SPEC.md §3: retry amount must equal the original. Partial debits are named there as a separate feature requiring its own compliance analysis, so they are out of scope rather than disabled."
+    confidence: primary
+    notes: "A citation, not a parameter. Splitting a debit to fit an available balance would raise recovery on paper and is exactly the tactic §3 refuses to allow silently."
+
+  compliance.pre_debit_notification.lead_hours:
+    value: 24
+    unit: hours
+    source: "SPEC.md §3 states at least 24 hours. SPEC.md §11 lists the RBI e-mandate pre-debit notification rules as unverified, and no circular has been read."
+    confidence: estimate
+    notes: "If the real requirement is longer, every strategy's fastest legal retry moves out and measured lift falls."
+
+  compliance.pre_debit_notification.retry_inherits_original_notice:
+    value: true
+    unit: bool
+    source: "Our reading of SPEC.md §3's 'unless the rail/scenario exempts it': the original debit was notified 24h ahead and a retry of that same charge, for the same amount, carries that notice. No circular has been read and this is not a settled question."
+    confidence: estimate
+    notes: "The single largest regulatory risk in the model. Set false and every sub-24h retry is illegal, which removes the fast technical retry that ReasonAware depends on. Phase 7 must report headline lift under BOTH settings side by side, permanently, not as a ±50% sweep -- the flag is binary and the pessimistic number has to stay visible next to the optimistic one."
+
+  compliance.max_retries_per_cycle.upi_autopay:
+    value: 3
+    unit: count
+    source: "Deliberately conservative default, per SPEC.md §3. SPEC.md §11 asks whether retry caps are a hard NPCI limit or PG policy; that is unresolved, so this is our choice rather than a rule."
+    confidence: estimate
+
+  compliance.max_retries_per_cycle.enach:
+    value: 2
+    unit: count
+    source: "Lower than the real-time rails because each eNACH return can carry a bank charge (SPEC.md §1.1), making an extra attempt cost money rather than merely an API call. Not a published limit."
+    confidence: estimate
+
+  compliance.max_retries_per_cycle.card_emandate:
+    value: 3
+    unit: count
+    source: "Conservative default matching the UPI cap. No scheme rule read."
+    confidence: estimate
+
+  compliance.enach.clearing_weekdays:
+    value: [0, 1, 2, 3, 4]
+    unit: weekday_index
+    source: "Monday-Friday, as Python weekday indices. SPEC.md §11 asks for the eNACH clearing calendar; it has not been obtained, so bank holidays are not modelled at all."
+    confidence: estimate
+    notes: "Holidays missing means the guard permits presentation on days NPCI would not clear, so compliance blocks are undercounted and recoverable revenue is overstated on eNACH."
+
+  compliance.enach.presentation_cutoff.rule:
+    value: "bank_batch_cutoff_time"
+    unit: rule
+    source: "SPEC.md §3 requires eNACH to respect batch cutoff times. The cutoff itself is per-bank and comes from population.bank.batch_cutoff_hour rather than being restated here."
+    confidence: estimate
+    notes: "Names where the cutoff is read from, so the rule has a source key like every other rule."
+
   # --- Failure engine (SPEC §2.2) -------------------------------------------------
   # Phase 4. The check order itself is fixed in code, not here; these are the rates
   # each check fires at. None is measured. `engine/calibration.py` reports how far the
@@ -841,6 +919,20 @@ open_questions:
     question: "Real billing days are not uniform over 1..28; they follow signup dates and month boundaries. Replace with a pilot merchant's actual billing-day histogram."
   - key: population.mandate.max_age_months
     question: "Book tenure at simulation start. Nothing reads it yet; it will matter once mandate expiry is modelled."
+  - key: compliance.pre_debit_notification.lead_hours
+    question: "Current RBI e-mandate pre-debit notification rules, from the latest circular rather than a blog summary. SPEC.md §11."
+  - key: compliance.pre_debit_notification.retry_inherits_original_notice
+    question: "Does a retry of an already-notified charge require fresh notice? Largest single regulatory risk in the model: if it does, every sub-24h retry is illegal and ReasonAware's fast technical retry disappears. Unverified."
+  - key: compliance.max_retries_per_cycle.upi_autopay
+    question: "Retry attempt caps per rail -- is there a hard NPCI limit, or is it PG policy? SPEC.md §11."
+  - key: compliance.max_retries_per_cycle.enach
+    question: "See compliance.max_retries_per_cycle.upi_autopay."
+  - key: compliance.max_retries_per_cycle.card_emandate
+    question: "See compliance.max_retries_per_cycle.upi_autopay."
+  - key: compliance.enach.clearing_weekdays
+    question: "eNACH clearing calendar and presentation cutoffs. No bank-holiday calendar is modelled at all, so compliance blocks are undercounted on eNACH."
+  - key: compliance.enach.presentation_cutoff.rule
+    question: "See compliance.enach.clearing_weekdays."
   - key: engine.rail_technical_multiplier.upi_autopay
     question: "Per-rail execution failure rates. NPCI publishes per-bank technical-decline data; the per-rail split still needs a source."
   - key: engine.rail_technical_multiplier.enach
