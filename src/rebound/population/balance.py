@@ -7,7 +7,7 @@ import numpy as np
 
 from rebound.config import Assumptions
 from rebound.domain.entities import Customer, Paise
-from rebound.harness.seeding import stream
+from rebound.seeding import stream
 
 _SATURDAY = 5
 _FRIDAY = 4

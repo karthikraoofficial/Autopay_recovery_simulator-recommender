@@ -4,13 +4,13 @@ import pytest
 
 from rebound.config import Assumptions
 from rebound.harness.runner import run_experiment, run_paired
-from rebound.harness.seeding import stream
 
 # These are harness unit tests: they test the runner, not the engine, so they pin the
 # deterministic phase-2 ScriptedEngine explicitly rather than following the default.
 # Integration-level runs take whatever the default engine is.
 from rebound.harness.stub_engine import ScriptedEngine
 from rebound.population.book import generate_book
+from rebound.seeding import stream
 from rebound.strategies.fixed_schedule import FixedSchedule
 from rebound.strategies.no_retry import NoRetry
 

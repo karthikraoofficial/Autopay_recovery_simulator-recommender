@@ -4,7 +4,7 @@ from rebound.config import Assumptions
 from rebound.domain.entities import AttemptOutcome
 from rebound.domain.reason_codes import ReasonCode, is_hard_decline
 from rebound.engine.protocol import AttemptRequest, AttemptResult
-from rebound.harness.seeding import stream
+from rebound.seeding import stream
 
 _REASON_MIX_KEY = "stub_engine.reason_mix.{code}"
 _RETRY_BASE_KEY = "stub_engine.retry_success_base.{code}"

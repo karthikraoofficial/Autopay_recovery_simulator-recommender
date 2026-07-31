@@ -4,9 +4,9 @@ import numpy as np
 
 from rebound.config import Assumptions
 from rebound.domain.entities import BalanceProcessParams, Bank, Customer, IncomeBand
-from rebound.harness.seeding import stream
 from rebound.population.banks import market_shares
 from rebound.population.mix import share_vector
+from rebound.seeding import stream
 
 # Declaration order is the index order of every per-band array below. It is fixed here
 # rather than taken from IncomeBand so that adding a band cannot silently reshuffle

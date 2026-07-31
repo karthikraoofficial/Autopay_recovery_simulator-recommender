@@ -7,8 +7,8 @@ import numpy as np
 
 from rebound.config import Assumptions
 from rebound.domain.entities import Customer, Mandate, Merchant, Rail
-from rebound.harness.seeding import stream
 from rebound.population.mix import share_vector
+from rebound.seeding import stream
 
 PAISE_PER_RUPEE = 100
 

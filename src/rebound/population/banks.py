@@ -6,7 +6,7 @@ import numpy as np
 
 from rebound.config import Assumptions
 from rebound.domain.entities import Bank, DowntimeWindow
-from rebound.harness.seeding import stream
+from rebound.seeding import stream
 
 HOURS_IN_DAY = 24
 DAYS_IN_WEEK = 7

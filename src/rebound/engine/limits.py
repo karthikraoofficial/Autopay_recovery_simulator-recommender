@@ -6,7 +6,7 @@ import numpy as np
 
 from rebound.config import Assumptions
 from rebound.domain.entities import Customer, Paise, Rail
-from rebound.harness.seeding import stream
+from rebound.seeding import stream
 
 _RAIL_LIMIT_KEYS: tuple[tuple[Rail, str], ...] = (
     (Rail.UPI_AUTOPAY, "engine.daily_limit_paise.upi_autopay"),

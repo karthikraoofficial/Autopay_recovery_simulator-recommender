@@ -14,8 +14,8 @@ from rebound.domain.reason_codes import ReasonCode
 from rebound.engine.limits import DailyLimits
 from rebound.engine.protocol import AttemptRequest, AttemptResult
 from rebound.engine.reaction import CustomerReaction
-from rebound.harness.seeding import stream
 from rebound.population.balance import BalanceProcess
+from rebound.seeding import stream
 
 _RAIL_TECHNICAL_KEYS: tuple[tuple[Rail, str], ...] = (
     (Rail.UPI_AUTOPAY, "engine.rail_technical_multiplier.upi_autopay"),

@@ -28,7 +28,6 @@ from rebound.harness.stub_engine import ScriptedEngine
 from rebound.population.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
 from rebound.strategies.base import CustomerObservable, ProposedRetry, RetryStrategy
 
-
 # Built fresh per strategy, so an engine that memoises draws cannot leak one strategy's
 # probes into another's results.
 EngineFactory = Callable[[Assumptions, int], PaymentEngine]

@@ -9,7 +9,7 @@ from pydantic import ConfigDict, Field
 from rebound.config import Assumptions
 from rebound.domain.entities import DomainModel
 from rebound.harness.metrics import StrategyMetrics
-from rebound.harness.seeding import stream
+from rebound.seeding import stream
 
 if TYPE_CHECKING:
     from rebound.harness.runner import SeedResult
