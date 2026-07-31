@@ -21,10 +21,10 @@ from rebound.domain.entities import (
     RecoveryEpisode,
 )
 from rebound.domain.reason_codes import ReasonCode
+from rebound.engine.failure import FailureEngine
 from rebound.engine.protocol import AttemptRequest, AttemptResult, PaymentEngine
 from rebound.harness.bootstrap import Interval, paired_intervals
 from rebound.harness.metrics import StrategyMetrics, combine, summarise
-from rebound.harness.stub_engine import ScriptedEngine
 from rebound.population.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
 from rebound.strategies.base import CustomerObservable, ProposedRetry, RetryStrategy
 
@@ -234,7 +234,7 @@ def run_paired(
     strategies: Sequence[RetryStrategy],
     seed: int,
     assumptions: Assumptions | None = None,
-    engine_factory: EngineFactory = ScriptedEngine,
+    engine_factory: EngineFactory = FailureEngine,
 ) -> HarnessReport:
     """Every strategy sees a deep copy of the same book and the same engine seed, so the
     populations are identical and the outcomes are common random numbers. Differences
@@ -260,7 +260,7 @@ def run_experiment(
     master_seed: int,
     assumptions: Assumptions | None = None,
     n_seeds: int | None = None,
-    engine_factory: EngineFactory = ScriptedEngine,
+    engine_factory: EngineFactory = FailureEngine,
 ) -> HarnessReport:
     """SPEC §5.1: bootstrap confidence intervals over N seeds. `run_paired` is the single
     seed case and carries no intervals — one seed cannot support one."""
