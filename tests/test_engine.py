@@ -331,3 +331,35 @@ def test_different_seeds_give_different_outcomes(shipped: Assumptions) -> None:
         FailureEngine(shipped, seed).execute(request).reason_code for seed in range(SEED, SEED + 40)
     }
     assert len(outcomes) > 1
+
+
+def test_a_same_day_retry_does_not_inherit_the_original_attempt_s_luck(
+    shipped: Assumptions,
+) -> None:
+    """Regression. The rolls were keyed by calendar date while the bank-availability
+    threshold is hourly, so a sub-day retry drew the identical number as the attempt it
+    followed and could only reproduce that outcome. SPEC §4.3's two-hour technical retry
+    was therefore impossible to benefit from, and the zero would have read as a finding
+    about retry timing rather than an artefact of the draw."""
+    engine = FailureEngine(shipped, SEED)
+    dead_bank = _bank(uptime=0.0, td_rate=0.0)
+    rich = _customer(income=500_000_000)
+    first = engine.execute(_request(bank=dead_bank, customer=rich, when=WHEN))
+    assert first.reason_code is ReasonCode.BANK_UNAVAILABLE
+    healthy = _bank(uptime=1.0, td_rate=0.0)
+    later = engine.execute(
+        _request(bank=healthy, customer=rich, attempt=2, when=WHEN + timedelta(hours=2))
+    )
+    assert later.outcome is AttemptOutcome.SUCCESS
+
+
+def test_two_strategies_retrying_at_the_same_instant_still_share_luck(
+    shipped: Assumptions,
+) -> None:
+    """The paired-comparison property survives the finer key: identical timing means
+    identical draws, so a difference between strategies is still timing, not sampling."""
+    engine = FailureEngine(shipped, SEED)
+    when = WHEN + timedelta(days=2, hours=5)
+    a = engine.execute(_request(customer=_customer(income=60_000), attempt=2, when=when))
+    b = engine.execute(_request(customer=_customer(income=60_000), attempt=2, when=when))
+    assert a.model_dump() == b.model_dump()

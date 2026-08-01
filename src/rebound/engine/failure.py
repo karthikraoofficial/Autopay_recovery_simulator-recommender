@@ -184,17 +184,27 @@ class FailureEngine:
         return self._roll(request, "topup") < probability
 
     def _roll(self, request: AttemptRequest, purpose: str) -> float:
-        """One addressed stream per (purpose, mandate, cycle, date). Keyed by date rather
-        than attempt number so that two strategies landing a retry on the same day draw
-        the same number; where the outcome should still differ by attempt number, it is
-        the threshold that moves, not the draw."""
+        """One addressed stream per (purpose, mandate, cycle, hour).
+
+        Keyed by the hour, not the calendar date. `_bank_availability` compares this draw
+        against an hourly threshold (`uptime_profile[hour]`), so a date-keyed draw was
+        comparing one random number against a threshold that moved through the day, and
+        — worse — gave a same-day retry the identical draw to the attempt it followed.
+        A fast retry after a technical decline could therefore only ever reproduce that
+        decline, which silently made SPEC §4.3's two-hour retry impossible to benefit
+        from and would have shown up as a real finding about retry timing.
+
+        Keyed by attempt time rather than attempt number, so two strategies retrying at
+        the same instant still face identical luck; where the outcome should differ by
+        attempt number it is the threshold that moves, not the draw.
+        """
         return float(
             stream(
                 self._seed,
                 purpose,
                 request.mandate.id,
                 request.cycle_id,
-                request.scheduled_at.date().isoformat(),
+                request.scheduled_at.strftime("%Y-%m-%dT%H"),
             ).random()
         )
 
