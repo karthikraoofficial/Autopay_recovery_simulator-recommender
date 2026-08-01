@@ -27,7 +27,12 @@ from rebound.engine.protocol import AttemptRequest, AttemptResult, PaymentEngine
 from rebound.harness.bootstrap import Interval, paired_intervals
 from rebound.harness.metrics import StrategyMetrics, combine, summarise
 from rebound.population.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
-from rebound.strategies.base import CustomerObservable, ProposedRetry, RetryStrategy
+from rebound.strategies.base import (
+    CustomerObservable,
+    LearningStrategy,
+    ProposedRetry,
+    RetryStrategy,
+)
 
 # Built fresh per strategy, so an engine that memoises draws cannot leak one strategy's
 # probes into another's results.
@@ -60,6 +65,7 @@ class HarnessReport(DomainModel):
 
     def intervals_for(self, name: str) -> tuple[Interval, ...]:
         return tuple(i for i in self.intervals if i.strategy == name)
+
 
 
 def _pick(metrics: Sequence[StrategyMetrics], name: str) -> StrategyMetrics:
@@ -248,7 +254,17 @@ def _run_strategy(
     )
     # One guard per strategy run, so its block log is that strategy's own opportunity
     # forgone rather than a total shared across the paired comparison.
-    guard = ComplianceGuard(assumptions)
+    # Optional, and absent on every strategy but `NoReschedule`: whether a retry blocked
+    # by a timing rule is moved to the next legal slot or abandoned. It belongs to the
+    # scheduler a merchant runs, not to the retry logic, which is why it is a property of
+    # the strategy under test rather than a global setting.
+    guard = ComplianceGuard(
+        assumptions, reschedule=getattr(strategy, "reschedules_blocked_retries", True)
+    )
+    # A strategy that learns from the merchant's own history starts each book knowing
+    # nothing, so seed N is not measured on state accumulated over seeds 1..N-1.
+    if isinstance(strategy, LearningStrategy):
+        strategy.reset()
     banks = {b.id: b for b in book.banks}
     customers = {c.id: c for c in book.customers}
     episodes: list[RecoveryEpisode] = []
@@ -274,6 +290,7 @@ def _run_strategy(
         fee_rate,
         induced_revocations=revocations,
         compliance_blocks=len(guard.blocks),
+        compliance_reschedules=len(guard.reschedules),
         terminated_hard_decline=terminated,
     )
 

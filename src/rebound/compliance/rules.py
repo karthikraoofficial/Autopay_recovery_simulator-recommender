@@ -22,6 +22,16 @@ RULE_SOURCES: dict[str, str] = {
     PRESENTATION_WINDOW: "compliance.enach.clearing_weekdays",
 }
 
+# Rules a later slot can satisfy. A presentation window and a notice period are both
+# statements about *when* a retry may run, so a blocked proposal has a next legal time.
+#
+# The rules absent from this set are absent for a reason, not by oversight. An attempt
+# cap is exhausted for the whole cycle — no later slot restores it. An amount-integrity
+# breach is wrong in the amount, not the timing, and moving it would execute the same
+# illegal debit later. Rescheduling either would manufacture attempts the merchant may
+# not make, which is precisely the fake lift SPEC §0.3 exists to prevent.
+RESCHEDULABLE_RULES: frozenset[str] = frozenset({PRESENTATION_WINDOW, PRE_DEBIT_NOTIFICATION})
+
 ATTEMPT_CAP_KEYS: dict[Rail, str] = {
     Rail.UPI_AUTOPAY: "compliance.max_retries_per_cycle.upi_autopay",
     Rail.ENACH: "compliance.max_retries_per_cycle.enach",

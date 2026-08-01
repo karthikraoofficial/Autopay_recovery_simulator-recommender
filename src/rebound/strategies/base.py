@@ -66,6 +66,20 @@ class ProposedRetry(DomainModel):
 
 
 @runtime_checkable
+class LearningStrategy(Protocol):
+    """A strategy that accumulates state across the calls the harness makes to it.
+
+    Learning from the merchant's own outcome history is legitimate — it is observable
+    data — but the state belongs to one book. Carried across seeds it would let a
+    strategy arrive at seed 2 already knowing seed 1's banks, which is not lift, and the
+    paired comparison would stop measuring the same thing on every seed. The harness
+    calls `reset` before each strategy run for exactly this reason.
+    """
+
+    def reset(self) -> None: ...
+
+
+@runtime_checkable
 class RetryStrategy(Protocol):
     name: str
 

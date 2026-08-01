@@ -51,6 +51,14 @@ class ReasonAware:
             **{code: timedelta(days=d) for code, d in days.items()},
         }
 
+    def delay_for(self, code: ReasonCode) -> timedelta | None:
+        """The wait this strategy prescribes for a code, or None if it proposes nothing.
+
+        Public so `Blended` can score against the same six numbers rather than keeping a
+        second copy of them that could drift out of step with this one.
+        """
+        return self._delays.get(code)
+
     def propose_retries(
         self,
         failed_attempt: DebitAttempt,

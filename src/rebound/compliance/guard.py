@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from pydantic import AwareDatetime, ConfigDict, Field
 
@@ -14,6 +14,7 @@ from rebound.compliance.rules import (
     HARD_DECLINE_STOP,
     PRE_DEBIT_NOTIFICATION,
     PRESENTATION_WINDOW,
+    RESCHEDULABLE_RULES,
     REVOCATION_RESPECT,
     RULE_SOURCES,
 )
@@ -64,6 +65,27 @@ class ComplianceBlock(DomainModel):
     detail: str = Field(min_length=1)
 
 
+class ComplianceReschedule(DomainModel):
+    """A retry that a timing rule moved rather than killed.
+
+    Reported apart from `ComplianceBlock` deliberately. A block is revenue the merchant
+    forgoes to stay compliant; a reschedule is revenue it still collects, later. Adding
+    them together would overstate the cost of compliance, and reporting only the total
+    would hide which rules actually cost money and which merely cost days.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    rule: str = Field(min_length=1)
+    mandate_id: str = Field(min_length=1)
+    proposed_at: AwareDatetime
+    rescheduled_at: AwareDatetime
+
+    @property
+    def delay(self) -> timedelta:
+        return self.rescheduled_at - self.proposed_at
+
+
 class ComplianceGuard:
     """SPEC §3. Every proposed retry passes through this before it can execute.
 
@@ -72,7 +94,7 @@ class ComplianceGuard:
     serious rather than by whichever happened to run first.
     """
 
-    def __init__(self, assumptions: Assumptions) -> None:
+    def __init__(self, assumptions: Assumptions, reschedule: bool = True) -> None:
         self._assert_absolute(assumptions, "compliance.hard_decline_stop.rule")
         self._assert_absolute(assumptions, "compliance.revocation_respect.rule")
         self._lead = timedelta(
@@ -85,7 +107,16 @@ class ComplianceGuard:
         self._clearing_weekdays = frozenset(
             int(d) for d in assumptions.value("compliance.enach.clearing_weekdays")
         )
+        self._reschedule_horizon = timedelta(
+            days=float(assumptions.value("compliance.reschedule_horizon_days"))
+        )
+        # False reproduces the behaviour this project shipped before phase 7: a blocked
+        # proposal is abandoned and the retry chain ends. That is not a correct engine,
+        # but it is what an unimproved merchant's scheduler does, so it stays available
+        # as a measurable reference rather than being deleted as a fixed bug.
+        self._reschedule = reschedule
         self.blocks: list[ComplianceBlock] = []
+        self.reschedules: list[ComplianceReschedule] = []
 
     @staticmethod
     def _assert_absolute(assumptions: Assumptions, key: str) -> None:
@@ -102,8 +133,13 @@ class ComplianceGuard:
     def rule_sources(self) -> dict[str, str]:
         return dict(RULE_SOURCES)
 
-    def review(self, proposal: ProposedRetry, context: RetryContext) -> ComplianceBlock | None:
-        """None means the retry may execute. Absolute violations raise instead."""
+    def _evaluate(self, proposal: ProposedRetry, context: RetryContext) -> ComplianceBlock | None:
+        """Pure: judges the proposal and records nothing.
+
+        Separate from `review` so `next_valid_slot` can probe candidate times without
+        each probe appearing in the block log. Counting probes as blocks would make
+        'opportunity forgone' a function of how hard we searched.
+        """
         self._check_absolute(context)
         for check in (
             self._amount_integrity,
@@ -113,19 +149,105 @@ class ComplianceGuard:
         ):
             block = check(proposal, context)
             if block is not None:
-                self.blocks.append(block)
                 return block
         return None
+
+    def review(self, proposal: ProposedRetry, context: RetryContext) -> ComplianceBlock | None:
+        """None means the retry may execute. Absolute violations raise instead."""
+        block = self._evaluate(proposal, context)
+        if block is not None:
+            self.blocks.append(block)
+        return block
+
+    def next_valid_slot(
+        self, proposal: ProposedRetry, context: RetryContext
+    ) -> ProposedRetry | None:
+        """The same retry moved to the next time it is legal, or None if no time is.
+
+        A real merchant whose retry lands past the eNACH cutoff presents it in the next
+        batch; it does not abandon the customer for the cycle. Dropping the proposal
+        instead made a timing rule act as a termination rule, which understated every
+        strategy that schedules outside the presentation window and made the compliance
+        cost of a rule indistinguishable from the strategy's own quality.
+
+        The search only ever moves a retry later and never changes its amount, so it
+        cannot invent an attempt the merchant was not already entitled to make.
+        """
+        if not self._reschedule:
+            block = self._evaluate(proposal, context)
+            if block is None:
+                return proposal
+            self.blocks.append(block)
+            return None
+        candidate = proposal
+        deadline = proposal.scheduled_at + self._reschedule_horizon
+        while candidate.scheduled_at <= deadline:
+            block = self._evaluate(candidate, context)
+            if block is None:
+                if candidate.scheduled_at != proposal.scheduled_at:
+                    self.reschedules.append(
+                        ComplianceReschedule(
+                            rule=self._blocking_rule(proposal, context),
+                            mandate_id=context.mandate.id,
+                            proposed_at=proposal.scheduled_at,
+                            rescheduled_at=candidate.scheduled_at,
+                        )
+                    )
+                return candidate
+            if block.rule not in RESCHEDULABLE_RULES:
+                self.blocks.append(block)
+                return None
+            moved = self._advance(candidate, context, block.rule)
+            if moved is None or moved <= candidate.scheduled_at:
+                break
+            candidate = candidate.model_copy(update={"scheduled_at": moved})
+        # Ran out of horizon. Logged as a block against the rule that was still binding,
+        # so the abandonment is attributed to a rule rather than to nothing.
+        exhausted = self._evaluate(proposal, context)
+        self.blocks.append(exhausted or self._horizon_block(proposal, context))
+        return None
+
+    def _blocking_rule(self, proposal: ProposedRetry, context: RetryContext) -> str:
+        block = self._evaluate(proposal, context)
+        return block.rule if block is not None else PRESENTATION_WINDOW
+
+    def _horizon_block(self, proposal: ProposedRetry, context: RetryContext) -> ComplianceBlock:
+        return self._block(
+            PRESENTATION_WINDOW,
+            RULE_SOURCES[PRESENTATION_WINDOW],
+            proposal,
+            context,
+            f"no legal slot within {self._reschedule_horizon} of the proposed time",
+        )
+
+    def _advance(
+        self, proposal: ProposedRetry, context: RetryContext, rule: str
+    ) -> datetime | None:
+        if rule == PRE_DEBIT_NOTIFICATION:
+            # Only reachable under the strict reading, where each retry needs its own
+            # notice. The earliest legal time is one lead period after the notice.
+            return context.history[-1].scheduled_at + self._lead
+        when = proposal.scheduled_at
+        cutoff = context.bank.batch_cutoff_time
+        if when.timetz().replace(tzinfo=None) > cutoff:
+            when = (when + timedelta(days=1)).replace(
+                hour=cutoff.hour, minute=cutoff.minute, second=0, microsecond=0
+            )
+        while when.weekday() not in self._clearing_weekdays:
+            when += timedelta(days=1)
+        return when
 
     def filter(
         self, proposals: Sequence[ProposedRetry], context: RetryContext
     ) -> ProposedRetry | None:
-        """The earliest proposal that survives the gate, or None if none do.
+        """The earliest proposal that can legally run, rescheduled if need be.
 
         A strategy may offer alternatives; rejecting its first choice should cost it that
         choice, not the whole retry chain.
         """
-        allowed = [p for p in proposals if self.review(p, context) is None]
+        allowed = [
+            slot for p in proposals if (slot := self.next_valid_slot(p, context)) is not None
+        ]
         return min(allowed, key=lambda p: p.scheduled_at) if allowed else None
 
     def _check_absolute(self, context: RetryContext) -> None:

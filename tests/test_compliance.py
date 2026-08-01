@@ -415,3 +415,135 @@ def test_all_six_spec_rules_are_present(shipped: Assumptions) -> None:
         PRESENTATION_WINDOW,
         AMOUNT_INTEGRITY,
     }
+
+
+# --- Rescheduling: a timing rule moves a retry, it does not end the chain ------------
+#
+# Before this existed, `filter` returned None whenever every proposal was blocked and the
+# harness ended the cycle. Because every strategy proposes exactly one candidate, a
+# single presentation-window block killed the whole retry chain — a timing rule acting as
+# a termination rule. That made a strategy's measured quality depend on whether it
+# happened to schedule inside the eNACH batch window, and it understated by construction
+# every strategy that did not.
+
+
+def test_a_retry_past_the_batch_cutoff_moves_to_the_next_batch(shipped: Assumptions) -> None:
+    guard = ComplianceGuard(shipped)
+    context = _context(rail=Rail.ENACH)
+    late = BILLED_AT.replace(hour=23)  # Wednesday, past the 17:00 cutoff
+    slot = guard.next_valid_slot(_retry(late), context)
+    assert slot is not None
+    assert slot.scheduled_at > late
+    assert slot.scheduled_at.timetz().replace(tzinfo=None) <= _bank().batch_cutoff_time
+    assert not guard.blocks
+
+
+def test_a_retry_on_a_non_clearing_day_moves_to_the_next_clearing_day(
+    shipped: Assumptions,
+) -> None:
+    guard = ComplianceGuard(shipped)
+    context = _context(rail=Rail.ENACH)
+    saturday = datetime(2026, 4, 18, 10, 0, tzinfo=UTC)
+    assert saturday.weekday() == 5
+    slot = guard.next_valid_slot(_retry(saturday), context)
+    assert slot is not None
+    assert slot.scheduled_at.weekday() in {0, 1, 2, 3, 4}
+
+
+def test_a_reschedule_is_counted_apart_from_a_block(shipped: Assumptions) -> None:
+    """A block is revenue forgone; a reschedule is the same revenue collected later.
+    Summing them would overstate the cost of compliance."""
+    guard = ComplianceGuard(shipped)
+    guard.next_valid_slot(_retry(BILLED_AT.replace(hour=23)), _context(rail=Rail.ENACH))
+    assert len(guard.reschedules) == 1
+    assert not guard.blocks
+    assert guard.reschedules[0].rule == PRESENTATION_WINDOW
+    assert guard.reschedules[0].delay > timedelta(0)
+
+
+def test_a_legal_retry_is_not_recorded_as_rescheduled(shipped: Assumptions) -> None:
+    guard = ComplianceGuard(shipped)
+    slot = guard.next_valid_slot(_retry(BILLED_AT + timedelta(days=1)), _context())
+    assert slot is not None
+    assert not guard.reschedules
+    assert not guard.blocks
+
+
+def test_rescheduling_never_moves_a_retry_earlier(shipped: Assumptions) -> None:
+    guard = ComplianceGuard(shipped)
+    for hour in range(24):
+        for day in range(7):
+            when = datetime(2026, 4, 13 + day, hour, tzinfo=UTC)
+            slot = guard.next_valid_slot(_retry(when), _context(rail=Rail.ENACH))
+            if slot is not None:
+                assert slot.scheduled_at >= when
+
+
+def test_rescheduling_never_changes_the_amount(shipped: Assumptions) -> None:
+    """Amount integrity survives the search. A slot found by altering the debit would be
+    the partial-debit feature SPEC §3 puts out of scope, arriving by the back door."""
+    guard = ComplianceGuard(shipped)
+    slot = guard.next_valid_slot(_retry(BILLED_AT.replace(hour=23)), _context(rail=Rail.ENACH))
+    assert slot is not None
+    assert slot.amount_paise == AMOUNT
+
+
+def test_an_exhausted_attempt_cap_is_not_rescheduled(shipped: Assumptions) -> None:
+    """No later slot restores a cap that is spent for the cycle. Rescheduling this would
+    manufacture an attempt the merchant may not make."""
+    cap = int(shipped.value("compliance.max_retries_per_cycle.upi_autopay"))
+    history = (_attempt(),) + tuple(_attempt(number=n + 2) for n in range(cap))
+    guard = ComplianceGuard(shipped)
+    context = _context(history=history)
+    assert guard.next_valid_slot(_retry(BILLED_AT + timedelta(days=1)), context) is None
+    assert len(guard.blocks) == 1
+    assert guard.blocks[0].rule == ATTEMPT_CAP
+    assert not guard.reschedules
+
+
+def test_a_wrong_amount_is_not_rescheduled(shipped: Assumptions) -> None:
+    guard = ComplianceGuard(shipped)
+    bad = _retry(BILLED_AT + timedelta(days=1), amount=AMOUNT + 1)
+    assert guard.next_valid_slot(bad, _context()) is None
+    assert [b.rule for b in guard.blocks] == [AMOUNT_INTEGRITY]
+
+
+def test_the_search_gives_up_at_the_configured_horizon(shipped: Assumptions) -> None:
+    """A merchant does not chase a slot forever, and an unbounded search would let a
+    retry drift into the next billing cycle where it is a different charge."""
+    from tests.conftest import override
+
+    narrow = override(shipped, {"compliance.enach.clearing_weekdays": [0]})
+    guard = ComplianceGuard(override(narrow, {"compliance.reschedule_horizon_days": 1}))
+    tuesday = datetime(2026, 4, 14, 10, 0, tzinfo=UTC)
+    assert guard.next_valid_slot(_retry(tuesday), _context(rail=Rail.ENACH)) is None
+    assert len(guard.blocks) == 1
+    assert not guard.reschedules
+
+
+def test_searching_does_not_inflate_the_block_log(shipped: Assumptions) -> None:
+    """Each probe evaluates the rules. Counting probes as blocks would make 'opportunity
+    forgone' a function of how hard the guard searched."""
+    guard = ComplianceGuard(shipped)
+    saturday = datetime(2026, 4, 18, 23, 0, tzinfo=UTC)
+    assert guard.next_valid_slot(_retry(saturday), _context(rail=Rail.ENACH)) is not None
+    assert len(guard.blocks) == 0
+    assert len(guard.reschedules) == 1
+
+
+def test_the_guard_can_be_built_to_abandon_blocked_retries(shipped: Assumptions) -> None:
+    """The pre-phase-7 behaviour, kept as a measurable reference rather than deleted.
+    `NoReschedule` runs on this so a merchant without a re-presenting scheduler has a
+    baseline that describes what they actually run."""
+    guard = ComplianceGuard(shipped, reschedule=False)
+    late = BILLED_AT.replace(hour=23)
+    assert guard.next_valid_slot(_retry(late), _context(rail=Rail.ENACH)) is None
+    assert [b.rule for b in guard.blocks] == [PRESENTATION_WINDOW]
+    assert not guard.reschedules
+
+
+def test_abandoning_still_lets_a_legal_retry_through(shipped: Assumptions) -> None:
+    guard = ComplianceGuard(shipped, reschedule=False)
+    slot = guard.next_valid_slot(_retry(BILLED_AT + timedelta(days=1)), _context())
+    assert slot is not None
+    assert not guard.blocks

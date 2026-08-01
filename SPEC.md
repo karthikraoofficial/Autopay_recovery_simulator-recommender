@@ -282,3 +282,11 @@ Flag these in `assumptions.yaml` as `confidence: estimate` until verified:
 - Retry attempt caps per rail — is there a hard NPCI limit or is it PG policy?
 - eNACH clearing calendar and presentation cutoffs
 - Realistic reason-code mix by vertical — **unknown until a pilot merchant shares data. This is the largest uncertainty in the model and must be labelled as such on the dashboard.**
+
+### Resolved by measurement, phase 7
+
+- **Per-mandate attempt history cannot identify a customer's payroll date.** Not a tuning problem and not fixable by a better estimator: it is unidentifiable from this data. Every mandate bills on one calendar day, so the observable history is one day-of-month repeated. The likelihood is then maximised by placing payroll immediately before that day — because a debit is likeliest to succeed just after a credit — regardless of when payroll actually is. Measured over 1,191 mandates: the estimate lands on the mandate's own **billing** day 93.7% of the time, and against the true salary day is within 2 days only 14.6% of the time, *worse than the 17.9% a uniform guess over 28 candidate days achieves*. On the 6.3% of mandates whose attempt history is varied enough to pull the estimate off the billing day, accuracy rises to 29.3% within 2 days — weak signal, not none, and confined to a minority.
+
+  **Consequence: salary-timing requires an external data source** (bank statement / account-aggregator consent, payroll-date declaration at signup, or an issuer signal). It cannot be recovered from payment telemetry alone, and no amount of history fixes it — more cycles supply more copies of the same uninformative day.
+
+  `SalaryAware` and `strategies/salary_inference.py` are **kept deliberately**, along with `test_a_single_billing_day_collapses_the_estimate_onto_that_day`, as executable documentation of why. Do not delete them to tidy up, and do not report `SalaryAware`'s measured lift as evidence that inferred salary timing works — a `BillingDayAnchor` control that skips inference entirely scores exactly zero lift, so what the estimator mostly does is reproduce the baseline.

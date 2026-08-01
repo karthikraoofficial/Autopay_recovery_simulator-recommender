@@ -2,7 +2,7 @@
 
 Read `SPEC.md` once at session start. Do not re-read it unless I say the spec changed.
 
-**Current phase: 5 (complete). Next: 6 — `ReasonAware`.** Update this line when a phase completes.
+**Current phase: 7 (complete). Next: 8 — API + dashboard.** Update this line when a phase completes.
 
 ## Ground rules
 

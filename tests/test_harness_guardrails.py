@@ -141,20 +141,42 @@ def test_same_seed_gives_an_identical_output_hash() -> None:
     assert first.output_hash == second.output_hash
 
 
-def test_recovery_rate_ordering_no_retry_le_fixed_le_blended() -> None:
-    """Sanity ordering. If this inverts, the engine or the harness is wrong, not the strategy."""
+def test_recovery_rate_ordering_no_retry_le_fixed() -> None:
+    """Sanity ordering. If this inverts, the engine or the harness is wrong: retrying
+    cannot recover less than never retrying at all."""
     from rebound.harness.runner import run_paired
     from rebound.population.book import generate_book
-    from rebound.strategies.blended import Blended
     from rebound.strategies.fixed_schedule import FixedSchedule
     from rebound.strategies.no_retry import NoRetry
 
     book = generate_book(_assumptions(), seed=SEED)
-    report = run_paired(book, [NoRetry(), FixedSchedule(), Blended()], seed=SEED)
-    no_retry = report.for_strategy("NoRetry").recovery_rate
-    fixed = report.for_strategy("FixedSchedule").recovery_rate
-    blended = report.for_strategy("Blended").recovery_rate
-    assert no_retry <= fixed <= blended
+    report = run_paired(book, [NoRetry(), FixedSchedule()], seed=SEED)
+    assert report.for_strategy("NoRetry").recovery_rate <= (
+        report.for_strategy("FixedSchedule").recovery_rate
+    )
+
+
+def test_recovery_rate_ordering_fixed_le_blended() -> None:
+    """SPEC §5.2 sanity ordering.
+
+    This briefly appeared to be false. It was not: `ComplianceGuard.filter` returned None
+    when a proposal was blocked and the harness ended the retry chain, so a single
+    presentation-window block killed the whole cycle. Since every strategy proposes one
+    candidate, that turned a timing rule into a termination rule and penalised exactly
+    the strategies that schedule outside the eNACH batch window. With
+    `next_valid_slot` rescheduling blocked proposals the ordering holds. Kept as a hard
+    assert, not an xfail: the guardrail was right and the measurement was wrong.
+    """
+    from rebound.harness.runner import run_paired
+    from rebound.population.book import generate_book
+    from rebound.strategies.blended import Blended
+    from rebound.strategies.fixed_schedule import FixedSchedule
+
+    book = generate_book(_assumptions(), seed=SEED)
+    report = run_paired(book, [FixedSchedule(), Blended()], seed=SEED)
+    assert report.for_strategy("FixedSchedule").recovery_rate <= (
+        report.for_strategy("Blended").recovery_rate
+    )
 
 
 def test_total_recovered_never_exceeds_total_failed() -> None:

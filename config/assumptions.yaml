@@ -118,6 +118,170 @@ assumptions:
     confidence: estimate
     notes: "Set above compliance.max_retries_per_cycle.* and the guard blocks the surplus, which inflates the compliance-block count with retries the strategy should never have proposed."
 
+  # --- Strategy: SalaryAware (SPEC §4.4) -----------------------------------------
+  # The strategy must INFER the salary day from observable attempt history; it never
+  # receives customer.salary_credit_day. The three probability numbers below are the
+  # likelihood model that inference runs on. They are not measured, and they are not the
+  # engine's real balance process either — that is the point: a merchant fitting a
+  # salary date is fitting a wrong model to thin data, and the phase-7 finding is how
+  # much accuracy that loses.
+
+  strategy.salary_aware.success_peak_probability:
+    value: 0.92
+    unit: ratio
+    source: "Guess. P(debit succeeds) on the day of a salary credit, as assumed by the inference model. Not read from the balance process, which the strategy cannot see."
+    confidence: estimate
+
+  strategy.salary_aware.success_floor_probability:
+    value: 0.45
+    unit: ratio
+    source: "Guess. P(debit succeeds) far from any credit, as assumed by the inference model."
+    confidence: estimate
+    notes: "The gap between peak and floor is the contrast the inference has to detect. Narrow it and no candidate salary day separates from any other."
+
+  strategy.salary_aware.success_decay_per_day:
+    value: 0.08
+    unit: ratio_per_day
+    source: "Guess at how fast assumed success probability falls from peak to floor with days since credit. Shapes the likelihood, not the simulation."
+    confidence: estimate
+
+  strategy.salary_aware.min_observations:
+    value: 4
+    unit: count
+    source: "Guess. Fewer informative attempts than this and the strategy declines to infer at all and falls back to the baseline schedule."
+    confidence: estimate
+    notes: "Only SUCCESS and INSUFFICIENT_FUNDS attempts are informative about balance timing; every other code says nothing about salary."
+
+  strategy.salary_aware.min_log_likelihood_margin:
+    value: 0.5
+    unit: log_likelihood
+    source: "Guess. How far the best candidate salary day must beat the mean candidate before the strategy will act on it. A refusal-to-guess threshold, not a fitted one."
+    confidence: estimate
+    notes: "Set to 0 and the strategy always commits to an argmax, including on a flat likelihood, which converts pure noise into confident retry timing."
+
+  strategy.salary_aware.target_window_days:
+    value: 2
+    unit: days
+    source: "SPEC.md §4.4 says land the retry 0-2 days after the predicted credit."
+    confidence: practitioner
+
+  strategy.salary_aware.max_wait_days:
+    value: 12
+    unit: days
+    source: "Guess. Cap on how far past the baseline offset a retry may be pushed to reach a predicted credit. Without it a retry can be deferred into the next billing cycle."
+    confidence: estimate
+    notes: "Binding often: a debit just after a credit has to wait most of a month for the next one, and waiting that long costs intent decay and revocation risk."
+
+  strategy.salary_aware.max_retries:
+    value: 3
+    unit: count
+    source: "Matches the conservative per-rail compliance cap, as with ReasonAware."
+    confidence: estimate
+
+  # --- Strategy: BankAware (SPEC §4.5) -------------------------------------------
+  # Prefers time-of-day slots at which this bank has been observed to succeed. The tally
+  # is built from attempts the strategy itself has seen across the merchant's own book —
+  # observable data, not ground truth — so it starts uninformed and learns within a run.
+
+  strategy.bank_aware.earliest_hour:
+    value: 7
+    unit: hour_of_day
+    source: "Guess. Lower bound of the hours the strategy will schedule into, chosen to sit clear of overnight batch and maintenance hours and inside a plausible presentation window."
+    confidence: estimate
+
+  strategy.bank_aware.latest_hour:
+    value: 16
+    unit: hour_of_day
+    source: "Guess. Upper bound of the schedulable hours, set below population.bank.batch_cutoff_hour so an eNACH retry is not proposed past a cutoff the strategy cannot see."
+    confidence: estimate
+    notes: "The bank's actual cutoff is not in CustomerObservable. If this rises above the real cutoff, eNACH retries start being blocked by the presentation-window rule rather than executing."
+
+  strategy.bank_aware.prior_attempts:
+    value: 8.0
+    unit: count
+    source: "Guess. Strength of the uninformative prior on an untried (bank, hour) slot, in pseudo-attempts. Higher means more evidence is needed before the strategy moves off its default hour."
+    confidence: estimate
+    notes: "This is what stops one lucky observation from pinning every future retry to one hour."
+
+  strategy.bank_aware.prior_success_rate:
+    value: 0.8
+    unit: ratio
+    source: "Guess at the prior mean success rate of an unobserved slot. Optimistic on purpose, so unexplored hours are not written off before they are tried."
+    confidence: estimate
+
+  strategy.bank_aware.max_retries:
+    value: 3
+    unit: count
+    source: "Matches the conservative per-rail compliance cap, as with ReasonAware."
+    confidence: estimate
+
+  # --- Strategy: Blended (SPEC §4.6) ---------------------------------------------
+  # Combines 3-5 with a scoring function. The weights decide which signal wins when they
+  # disagree; none is fitted, so a Blended lift number is a claim about these three.
+
+  strategy.blended.weight_reason:
+    value: 1.0
+    unit: ratio
+    source: "Reference weight. The reason-code branch is the only component with a stated basis in SPEC.md §4.3, so the other two are scaled against it."
+    confidence: estimate
+
+  strategy.blended.weight_salary:
+    value: 0.8
+    unit: ratio
+    source: "Guess. Discounted below the reason weight because the salary date is inferred rather than observed, and the inference is unreliable."
+    confidence: estimate
+    notes: "Sweep this first. If Blended's lift is sensitive to it, the lift is coming from an inference that phase 7 shows to be weak."
+
+  strategy.blended.weight_bank:
+    value: 0.6
+    unit: ratio
+    source: "Guess. Lowest of the three because the bank tally starts empty and is thin for most of a run."
+    confidence: estimate
+
+  strategy.blended.max_retries:
+    value: 3
+    unit: count
+    source: "Matches the conservative per-rail compliance cap, as with ReasonAware."
+    confidence: estimate
+
+  # --- Sensitivity analysis (SPEC §5.1) ------------------------------------------
+  # The sweep reruns the whole paired experiment once per assumption per direction, so
+  # its book and seed count are set by runtime rather than by precision. A conclusion
+  # that only survives at these settings is not a conclusion.
+
+  harness.sensitivity.sweep_factor:
+    value: 0.5
+    unit: ratio
+    source: "SPEC.md §5.1 states ±50%."
+    confidence: primary
+
+  harness.sensitivity.probability_ceiling:
+    value: 0.999
+    unit: ratio
+    source: "Not a modelled quantity. A probability at 1.0 makes some likelihoods degenerate, so an upward sweep that would exceed 1 stops just below it instead."
+    confidence: estimate
+    notes: "Every point clamped by this is flagged in the sweep output. A clamped key's upward sensitivity is understated by construction, because the sweep it was asked for is not representable."
+
+  harness.sensitivity.seeds:
+    value: 12
+    unit: count
+    source: "Chosen for runtime: the sweep runs a full paired experiment per assumption per direction. Far below harness.bootstrap_seeds."
+    confidence: estimate
+    notes: "Intervals from the sweep are wider than the headline intervals for this reason and are not interchangeable with them."
+
+  harness.sensitivity.book_size:
+    value: 400
+    unit: count
+    source: "Chosen for runtime, as harness.sensitivity.seeds. Smaller than book.size."
+    confidence: estimate
+
+  harness.sensitivity.months:
+    value: 6
+    unit: count
+    source: "Chosen for runtime, as harness.sensitivity.seeds. Shorter than book.months."
+    confidence: estimate
+    notes: "A shorter horizon gives SalaryAware less history to infer from, so the sweep understates any inference-driven strategy relative to a 12-month run."
+
   # --- Book shape ---------------------------------------------------------------
   # What is being simulated, as distinct from how the population is distributed.
 
@@ -590,6 +754,13 @@ assumptions:
     confidence: estimate
     notes: "Holidays missing means the guard permits presentation on days NPCI would not clear, so compliance blocks are undercounted and recoverable revenue is overstated on eNACH."
 
+  compliance.reschedule_horizon_days:
+    value: 5
+    unit: days
+    source: "Guess. How far a retry blocked by a timing rule may be moved to find a legal slot before the merchant gives up on that attempt. Long enough to clear a weekend plus a cutoff rollover; not a published limit."
+    confidence: estimate
+    notes: "Before this existed a blocked proposal was dropped and the whole retry chain ended, which turned a timing rule into a termination rule and understated every strategy that schedules outside the eNACH presentation window. Raise it and blocked-then-abandoned falls while days-to-recovery rises."
+
   compliance.enach.presentation_cutoff.rule:
     value: "bank_batch_cutoff_time"
     unit: rule
@@ -847,6 +1018,46 @@ open_questions:
     question: "INVALID_PIN is not applicable to autopay execution per SPEC.md §1.3; should this branch exist at all?"
   - key: strategy.reason_aware.max_retries
     question: "Should the strategy stop itself or be stopped by the compliance cap? They are currently equal, which hides which one is binding."
+  - key: strategy.salary_aware.success_peak_probability
+    question: "The inference likelihood is a guessed model of a process the strategy cannot observe. Should it instead be fitted online from the merchant's own outcome history?"
+  - key: strategy.salary_aware.success_floor_probability
+    question: "See strategy.salary_aware.success_peak_probability. The peak-to-floor contrast is what makes a salary day identifiable at all."
+  - key: strategy.salary_aware.success_decay_per_day
+    question: "See strategy.salary_aware.success_peak_probability."
+  - key: strategy.salary_aware.min_observations
+    question: "How much history does a salary date need before it is worth acting on? With one billing day per mandate the informative sample is small, which is the phase-7 finding."
+  - key: strategy.salary_aware.min_log_likelihood_margin
+    question: "What separation should count as an identified salary day rather than an argmax over noise? Chosen, not calibrated against a false-positive rate."
+  - key: strategy.salary_aware.max_wait_days
+    question: "How long may a retry be deferred to reach a predicted credit before the intent decay it causes outweighs the timing gained?"
+  - key: strategy.salary_aware.max_retries
+    question: "See strategy.reason_aware.max_retries."
+  - key: strategy.bank_aware.earliest_hour
+    question: "What hours can a merchant actually present on, per rail? The bank's batch cutoff is not in CustomerObservable, so these bounds stand in for it."
+  - key: strategy.bank_aware.latest_hour
+    question: "See strategy.bank_aware.earliest_hour."
+  - key: strategy.bank_aware.prior_attempts
+    question: "How much evidence should a (bank, hour) slot need before retry timing moves onto it? Governs explore-versus-exploit, and nothing here is measured."
+  - key: strategy.bank_aware.prior_success_rate
+    question: "See strategy.bank_aware.prior_attempts."
+  - key: strategy.bank_aware.max_retries
+    question: "See strategy.reason_aware.max_retries."
+  - key: strategy.blended.weight_reason
+    question: "The three blend weights are invented. Should they be fitted, and against what — recovery rate, or net of induced revocations?"
+  - key: strategy.blended.weight_salary
+    question: "See strategy.blended.weight_reason. Sensitivity to this weight is sensitivity to an inference phase 7 shows to be weak."
+  - key: strategy.blended.weight_bank
+    question: "See strategy.blended.weight_reason."
+  - key: strategy.blended.max_retries
+    question: "See strategy.reason_aware.max_retries."
+  - key: harness.sensitivity.probability_ceiling
+    question: "Not a question about the world. It exists because a ±50% sweep is not representable on a probability near 1; the affected keys are flagged clamped in the output."
+  - key: harness.sensitivity.seeds
+    question: "How many seeds does the sweep need before a fragility ranking is stable rather than reshuffled by noise?"
+  - key: harness.sensitivity.book_size
+    question: "See harness.sensitivity.seeds."
+  - key: harness.sensitivity.months
+    question: "See harness.sensitivity.seeds. A short horizon starves the salary inference, so the sweep is conservative about SalaryAware by construction."
   - key: book.size
     question: "Book size, horizon and epoch are inputs, not findings. What does the pilot merchant's book actually look like?"
   - key: book.months
@@ -981,6 +1192,8 @@ open_questions:
     question: "See compliance.max_retries_per_cycle.upi_autopay."
   - key: compliance.max_retries_per_cycle.card_emandate
     question: "See compliance.max_retries_per_cycle.upi_autopay."
+  - key: compliance.reschedule_horizon_days
+    question: "How long does a real merchant keep trying to place a retry that a presentation window or notice period has pushed back, before abandoning the cycle?"
   - key: compliance.enach.clearing_weekdays
     question: "eNACH clearing calendar and presentation cutoffs. No bank-holiday calendar is modelled at all, so compliance blocks are undercounted on eNACH."
   - key: compliance.enach.presentation_cutoff.rule

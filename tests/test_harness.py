@@ -126,7 +126,19 @@ def test_no_retry_recovers_nothing(small: Assumptions) -> None:
     assert metrics.retry_attempts == 0
 
 
-def test_fixed_schedule_retries_land_on_t1_t3_t7(small: Assumptions) -> None:
+def test_fixed_schedule_retries_land_on_t1_t3_t7_or_the_next_legal_slot(
+    small: Assumptions,
+) -> None:
+    """The baseline proposes T+1, T+3, T+7 and nothing else.
+
+    A recovery may still land later than the offset it was proposed for: an eNACH retry
+    falling on a weekend or past the batch cutoff is moved to the next clearing slot by
+    the guard rather than dropped. So the assertion is that every recovery day is one of
+    the offsets or a legal slot within the reschedule horizon of one — never earlier than
+    an offset, and never beyond what the horizon permits.
+    """
+    horizon = int(small.value("compliance.reschedule_horizon_days"))
+    offsets = list(small.value("strategy.fixed_schedule.retry_offsets_days"))
     report = run_paired(
         generate_book(small, SEED),
         [FixedSchedule(small)],
@@ -137,7 +149,9 @@ def test_fixed_schedule_retries_land_on_t1_t3_t7(small: Assumptions) -> None:
     metrics = report.for_strategy("FixedSchedule")
     assert metrics.retry_attempts > 0
     assert metrics.recovered_episodes > 0
-    assert set(metrics.days_to_recovery) <= {1, 3, 7}
+    allowed = {offset + slip for offset in offsets for slip in range(horizon + 1)}
+    assert set(metrics.days_to_recovery) <= allowed
+    assert min(metrics.days_to_recovery) >= min(offsets)
 
 
 def test_fixed_schedule_beats_no_retry_on_the_same_population(small: Assumptions) -> None:

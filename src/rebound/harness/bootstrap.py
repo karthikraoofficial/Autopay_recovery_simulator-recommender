@@ -21,6 +21,9 @@ METRICS: tuple[tuple[str, Callable[[StrategyMetrics], float]], ...] = (
     ("gross_recovered_paise", lambda m: float(m.gross_recovered_paise)),
     ("net_recovered_paise", lambda m: float(m.net_recovered_paise)),
     ("attempts_per_recovery", lambda m: m.attempts_per_recovery or 0.0),
+    # The parity check. A recovery-rate difference between two strategies means nothing
+    # until this one is known to be comparable, so it carries an interval like the rest.
+    ("attempts_per_episode", lambda m: m.attempts_per_episode),
     ("induced_revocations", lambda m: float(m.induced_revocations)),
     ("median_days_to_recovery", lambda m: float(m.median_days_to_recovery or 0)),
     ("p90_days_to_recovery", lambda m: float(m.p90_days_to_recovery or 0)),

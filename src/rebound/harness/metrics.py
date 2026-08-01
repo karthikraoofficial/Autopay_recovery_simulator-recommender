@@ -33,6 +33,10 @@ class StrategyMetrics(DomainModel):
     retry_attempts: int = Field(ge=0)
     induced_revocations: int = Field(ge=0)
     compliance_blocks: int = Field(ge=0)
+    # Blocked by a timing rule and moved to a legal slot, not abandoned. Kept apart from
+    # compliance_blocks because the two mean opposite things commercially: a block is
+    # revenue forgone, a reschedule is the same revenue collected later.
+    compliance_reschedules: int = Field(ge=0)
     # Kept apart from compliance_blocks on purpose. A hard decline ends the episode
     # as a matter of lifecycle (SPEC §1.3); it is not a retry the merchant wanted and
     # compliance forbade, so folding it into 'opportunity forgone' would inflate that
@@ -62,6 +66,22 @@ class StrategyMetrics(DomainModel):
             return None
         return self.total_attempts / self.recovered_episodes
 
+    @property
+    def attempts_per_episode(self) -> float:
+        """Mean attempts actually executed per failed episode — the parity check.
+
+        Two strategies are only comparable on recovery if they were allowed comparable
+        numbers of shots at it. A strategy that recovers less while also attempting less
+        has not been shown to be worse at timing; it has been shown to have been stopped
+        earlier, by its own cap, by the attempt cap, or by a rule that ended its chain.
+        Reported beside recovery rate for that reason, never behind it.
+        """
+        return self.total_attempts / self.episodes if self.episodes else 0.0
+
+    @property
+    def retries_per_episode(self) -> float:
+        return self.retry_attempts / self.episodes if self.episodes else 0.0
+
 
 def summarise(
     strategy: str,
@@ -69,6 +89,7 @@ def summarise(
     fee_rate: float,
     induced_revocations: int = 0,
     compliance_blocks: int = 0,
+    compliance_reschedules: int = 0,
     terminated_hard_decline: int = 0,
 ) -> StrategyMetrics:
     episodes = tuple(episodes)
@@ -85,6 +106,7 @@ def summarise(
         retry_attempts=sum(len(e.retry_attempts) for e in episodes),
         induced_revocations=induced_revocations,
         compliance_blocks=compliance_blocks,
+        compliance_reschedules=compliance_reschedules,
         terminated_hard_decline=terminated_hard_decline,
         days_to_recovery=tuple(sorted(e.days_to_recovery or 0 for e in recovered)),
     )
@@ -105,6 +127,7 @@ def combine(strategy: str, parts: Iterable[StrategyMetrics]) -> StrategyMetrics:
         retry_attempts=sum(p.retry_attempts for p in parts),
         induced_revocations=sum(p.induced_revocations for p in parts),
         compliance_blocks=sum(p.compliance_blocks for p in parts),
+        compliance_reschedules=sum(p.compliance_reschedules for p in parts),
         terminated_hard_decline=sum(p.terminated_hard_decline for p in parts),
         days_to_recovery=tuple(sorted(d for p in parts for d in p.days_to_recovery)),
     )
