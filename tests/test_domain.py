@@ -117,6 +117,7 @@ def test_lapsed_episode_recovers_nothing() -> None:
     episode = RecoveryEpisode(
         mandate_id="m1",
         cycle_id="c1",
+            cycle_index=0,
         original_attempt=attempt(),
         retry_attempts=(attempt(n=2, offset_days=3),),
         outcome=EpisodeOutcome.LAPSED,
@@ -130,6 +131,7 @@ def test_recovered_episode_amount_must_match_the_successful_attempt() -> None:
         RecoveryEpisode(
             mandate_id="m1",
             cycle_id="c1",
+            cycle_index=0,
             original_attempt=attempt(),
             retry_attempts=(
                 attempt(n=2, outcome=AttemptOutcome.SUCCESS, reason=None, offset_days=3),
@@ -145,6 +147,7 @@ def test_lapsed_episode_containing_a_success_is_rejected() -> None:
         RecoveryEpisode(
             mandate_id="m1",
             cycle_id="c1",
+            cycle_index=0,
             original_attempt=attempt(),
             retry_attempts=(
                 attempt(n=2, outcome=AttemptOutcome.SUCCESS, reason=None, offset_days=1),
@@ -159,6 +162,7 @@ def test_attempt_after_a_hard_decline_is_rejected() -> None:
         RecoveryEpisode(
             mandate_id="m1",
             cycle_id="c1",
+            cycle_index=0,
             original_attempt=attempt(reason=ReasonCode.MANDATE_REVOKED),
             retry_attempts=(attempt(n=2, offset_days=1),),
             outcome=EpisodeOutcome.LAPSED,
@@ -170,6 +174,7 @@ def test_hard_decline_as_the_last_attempt_is_allowed() -> None:
     episode = RecoveryEpisode(
         mandate_id="m1",
         cycle_id="c1",
+            cycle_index=0,
         original_attempt=attempt(),
         retry_attempts=(attempt(n=2, reason=ReasonCode.MANDATE_REVOKED, offset_days=1),),
         outcome=EpisodeOutcome.LAPSED,
@@ -183,6 +188,7 @@ def test_retries_must_be_ordered_by_scheduled_at() -> None:
         RecoveryEpisode(
             mandate_id="m1",
             cycle_id="c1",
+            cycle_index=0,
             original_attempt=attempt(offset_days=5),
             retry_attempts=(attempt(n=2, offset_days=1),),
             outcome=EpisodeOutcome.LAPSED,
@@ -195,6 +201,7 @@ def test_episode_must_start_from_a_failure() -> None:
         RecoveryEpisode(
             mandate_id="m1",
             cycle_id="c1",
+            cycle_index=0,
             original_attempt=attempt(outcome=AttemptOutcome.SUCCESS, reason=None),
             outcome=EpisodeOutcome.LAPSED,
             amount_recovered_paise=0,

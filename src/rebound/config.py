@@ -61,6 +61,23 @@ class Assumptions(BaseModel):
         except KeyError:
             raise KeyError(f"no assumption {key!r} in assumptions.yaml") from None
 
+    def with_values(self, values: dict[str, Any]) -> Assumptions:
+        """A copy with some values replaced, keeping each entry's source and confidence.
+
+        The API's merchant inputs land here. Replacing the value and not the provenance is
+        deliberate: a book size the caller supplied is still governed by the note on
+        `book.size`, and the dashboard renders that note beside the number.
+
+        Only existing keys may be set. A typo would otherwise add an assumption nothing
+        reads and report the run as if the input had been applied.
+        """
+        entries = dict(self.assumptions)
+        for key, value in values.items():
+            if key not in entries:
+                raise KeyError(f"no assumption {key!r} in assumptions.yaml")
+            entries[key] = entries[key].model_copy(update={"value": value})
+        return self.model_copy(update={"assumptions": entries})
+
 
 def load_assumptions(path: Path | None = None) -> Assumptions:
     path = path or DEFAULT_ASSUMPTIONS_PATH

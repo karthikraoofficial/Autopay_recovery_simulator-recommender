@@ -299,17 +299,22 @@ def _run_cycle(
         if result.outcome is AttemptOutcome.SUCCESS:
             break
     terminated = int(attempts[-1].is_hard_decline)
-    return _episode(run, cycle_id, attempts, billed_at), revocations, terminated
+    return _episode(run, cycle_id, cycle_index, attempts, billed_at), revocations, terminated
 
 
 def _episode(
-    run: _MandateRun, cycle_id: str, attempts: list[DebitAttempt], billed_at: datetime
+    run: _MandateRun,
+    cycle_id: str,
+    cycle_index: int,
+    attempts: list[DebitAttempt],
+    billed_at: datetime,
 ) -> RecoveryEpisode:
     last = attempts[-1]
     recovered = last.outcome is AttemptOutcome.SUCCESS
     return RecoveryEpisode(
         mandate_id=run.mandate.id,
         cycle_id=cycle_id,
+        cycle_index=cycle_index,
         original_attempt=attempts[0],
         retry_attempts=tuple(attempts[1:]),
         outcome=EpisodeOutcome.RECOVERED if recovered else EpisodeOutcome.LAPSED,
@@ -366,6 +371,7 @@ def _run_strategy(
         compliance_blocks=len(guard.blocks),
         compliance_reschedules=len(guard.reschedules),
         terminated_hard_decline=terminated,
+        months=book.months,
     )
 
 

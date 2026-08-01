@@ -2,7 +2,7 @@
 
 Read `SPEC.md` once at session start. Do not re-read it unless I say the spec changed.
 
-**Current phase: 7 (complete). Next: 8 — API + dashboard.** Update this line when a phase completes.
+**Current phase: 8 (complete). Next: 9 — `MLRanked`, only if 4–6 plateau.** Update this line when a phase completes.
 
 ## Ground rules
 

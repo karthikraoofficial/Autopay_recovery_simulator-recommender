@@ -42,6 +42,7 @@ def episode(*, recovered: bool, amount: int = 10_000, days: int = 3) -> Recovery
         return RecoveryEpisode(
             mandate_id="m1",
             cycle_id="c1",
+            cycle_index=0,
             original_attempt=original,
             outcome=EpisodeOutcome.LAPSED,
             amount_recovered_paise=0,
@@ -58,6 +59,7 @@ def episode(*, recovered: bool, amount: int = 10_000, days: int = 3) -> Recovery
     return RecoveryEpisode(
         mandate_id="m1",
         cycle_id="c1",
+        cycle_index=0,
         original_attempt=original,
         retry_attempts=(retry,),
         outcome=EpisodeOutcome.RECOVERED,
@@ -70,21 +72,23 @@ def episode(*, recovered: bool, amount: int = 10_000, days: int = 3) -> Recovery
 
 
 def test_net_is_gross_less_the_performance_fee() -> None:
-    metrics = summarise("S", [episode(recovered=True, amount=100_000)], fee_rate=0.15)
+    metrics = summarise("S", [episode(recovered=True, amount=100_000)], fee_rate=0.15, months=1)
     assert metrics.gross_recovered_paise == 100_000
     assert metrics.performance_fee_paise == 15_000
     assert metrics.net_recovered_paise == 85_000
 
 
 def test_recovery_rate_and_attempts_per_recovery() -> None:
-    metrics = summarise("S", [episode(recovered=True), episode(recovered=False)], fee_rate=0.15)
+    metrics = summarise(
+        "S", [episode(recovered=True), episode(recovered=False)], fee_rate=0.15, months=1
+    )
     assert metrics.recovery_rate == 0.5
     assert metrics.total_attempts == 3
     assert metrics.attempts_per_recovery == 3.0
 
 
 def test_empty_metrics_do_not_divide_by_zero() -> None:
-    metrics = summarise("S", [], fee_rate=0.15)
+    metrics = summarise("S", [], fee_rate=0.15, months=1)
     assert metrics.recovery_rate == 0.0
     assert metrics.attempts_per_recovery is None
     assert metrics.median_days_to_recovery is None
@@ -92,14 +96,14 @@ def test_empty_metrics_do_not_divide_by_zero() -> None:
 
 def test_percentiles_use_nearest_rank_over_real_days() -> None:
     metrics = summarise(
-        "S", [episode(recovered=True, days=d) for d in (1, 2, 3, 4, 30)], fee_rate=0.0
+        "S", [episode(recovered=True, days=d) for d in (1, 2, 3, 4, 30)], fee_rate=0.0, months=1
     )
     assert metrics.median_days_to_recovery == 3
     assert metrics.p90_days_to_recovery == 30
 
 
 def test_combine_sums_counters_and_merges_day_samples() -> None:
-    part = summarise("S", [episode(recovered=True, days=2)], fee_rate=0.15)
+    part = summarise("S", [episode(recovered=True, days=2)], fee_rate=0.15, months=1)
     total = combine("S", [part, part])
     assert total.episodes == 2
     assert total.gross_recovered_paise == 2 * part.gross_recovered_paise
@@ -108,7 +112,7 @@ def test_combine_sums_counters_and_merges_day_samples() -> None:
 
 def test_metrics_carry_no_floats() -> None:
     """The output hash is exact only because the stored state is integral."""
-    dumped = summarise("S", [episode(recovered=True)], fee_rate=0.15).model_dump()
+    dumped = summarise("S", [episode(recovered=True)], fee_rate=0.15, months=1).model_dump()
     for key, value in dumped.items():
         assert not isinstance(value, float), f"{key} is a float"
 
@@ -273,7 +277,7 @@ def test_single_seed_run_carries_no_intervals(small: Assumptions) -> None:
 
 
 def test_strategy_metrics_are_frozen() -> None:
-    metrics = summarise("S", [episode(recovered=True)], fee_rate=0.15)
+    metrics = summarise("S", [episode(recovered=True)], fee_rate=0.15, months=1)
     with pytest.raises(Exception):  # noqa: B017
         metrics.episodes = 5  # type: ignore[misc]
     assert isinstance(metrics, StrategyMetrics)

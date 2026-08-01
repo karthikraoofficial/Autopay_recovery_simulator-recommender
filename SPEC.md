@@ -200,8 +200,8 @@ Write these as failing tests before the strategies exist:
 
 Single-page dashboard. Three sections:
 
-1. **Input** — merchant profile: book size, avg ticket, rail mix, vertical, billing day policy. Six fields maximum.
-2. **Result** — one chart. Baseline recovery vs. `Blended` recovery, in ₹, over 12 months. One headline number: *"₹X recovered annually, ₹Y net of fees."* Confidence interval displayed.
+1. **Input** — six live fields, every one of which moves the number: book size, avg ticket, UPI share, eNACH share (card = remainder), reason-code mix (current / IF-dominant / technical-dominant), performance fee rate. Horizon fixed at 12 months. `vertical` and `billing_day_policy` were dropped in phase 8 — neither drove any generator, and an inert control is worse than an absent one.
+2. **Result** — the decomposition as **two separate line items, never summed**: rescheduling lift (`NoReschedule` → `FixedSchedule`) and strategy lift (`FixedSchedule` → `Blended`), each in ₹ with its confidence interval. Seed count and interval width displayed alongside. Where an interval spans zero, say so in words — a non-significant result must not be rendered as a bar that reads as positive.
 3. **Assumptions** — rendered `assumptions.yaml` with sources and confidence levels, always visible, never behind a click.
 
 Resist adding more. The dashboard's job is to survive scrutiny, not to impress.
@@ -212,7 +212,7 @@ Resist adding more. The dashboard's job is to survive scrutiny, not to impress.
 
 - **Python 3.11+**, `pydantic` v2 for the domain model, `numpy` for the stochastic processes, `pandas` for the harness output, `pytest` + `hypothesis` for tests.
 - **Simulation:** hand-rolled discrete-event loop. Do not use SimPy — the added abstraction costs more than it saves here.
-- **API:** FastAPI, three endpoints (`POST /simulate`, `GET /assumptions`, `GET /strategies`).
+- **API:** FastAPI, three endpoints (`POST /simulate`, `GET /assumptions`, `GET /strategies`). The sim is stateless — no persistence layer, no caching. Interval width is the honest signal of what a cheap run bought; a cache hides that cost.
 - **Front end:** React + Vite + Recharts. Single page. No component library.
 - **Persistence:** SQLite via SQLModel, only for caching simulation runs. The sim itself is stateless.
 - **ML (phase 7 only):** scikit-learn `HistGradientBoostingClassifier`. Not XGBoost, not PyTorch.
@@ -255,14 +255,14 @@ rebound/
 |---|---|---|
 | 0 | Repo, config loader, `assumptions.yaml` skeleton | `pytest` runs, config loads |
 | 1 | Domain model + reason codes | Types are complete, guardrail tests written and **failing** |
-| 2 | Evaluation harness (against a stub engine), plus the two baselines `FixedSchedule` and `NoRetry` | Determinism + no-money-created tests pass |
+| 2 | Evaluation harness + `NoRetry` and `FixedSchedule` baselines | Determinism + no-money-created tests pass |
 | 3 | Population + bank generators | Salary-date distribution reproduces expected shape |
 | 4 | Failure engine | Reason-code mix is tunable to a target distribution |
 | 5 | Compliance guard | Violating strategies are blocked, logged, tested |
 | 6 | Strategy 3 (`ReasonAware`); 1 and 2 already exist from phase 2 | `ReasonAware` beats `FixedSchedule` with non-overlapping CIs |
-| 7 | Strategies 4–6 | Sensitivity analysis run and documented |
+| 7 | Strategies 4–6 + `NoReschedule` reference | Sensitivity sweep run **at powered sizing (400 mandates, 12 seeds)** and documented. A sweep run where the base effect is not significant produces sign-flips of noise, not fragility — the harness raises `UnderpoweredSweepError` rather than emitting that list. |
 | 8 | API + dashboard | End-to-end from six inputs to one chart |
-| 9 | `MLRanked` | Only if 4–6 plateau |
+| 9 | `MLRanked` | Only if 4–6 plateau. **Phase 7 evidence says skip it:** rescheduling (plumbing, no model) is worth ~4× the best retry logic and is significant under every reason-code mix. Do not build this without a specific reason that survives that finding. |
 
 ---
 

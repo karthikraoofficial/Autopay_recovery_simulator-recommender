@@ -174,6 +174,10 @@ class DebitAttempt(DomainModel):
 class RecoveryEpisode(DomainModel):
     mandate_id: str = Field(min_length=1)
     cycle_id: str = Field(min_length=1)
+    # Which billing month of the run this episode belongs to, zero-based. Carried
+    # explicitly rather than parsed back out of cycle_id, because SPEC §6 renders ₹
+    # recovered over 12 months and a string is not a place to keep a number.
+    cycle_index: int = Field(ge=0)
     original_attempt: DebitAttempt
     retry_attempts: tuple[DebitAttempt, ...] = ()
     outcome: EpisodeOutcome

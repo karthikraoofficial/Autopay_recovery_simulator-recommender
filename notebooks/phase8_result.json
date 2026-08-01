@@ -1,0 +1,113 @@
+{
+  "book_size": 400,
+  "current": {
+    "decomposition": {
+      "baseline": "FixedSchedule",
+      "headline": "Blended",
+      "metric": "net_recovered_paise",
+      "rescheduling": {
+        "high": 1014425.4166666666,
+        "level": 0.9,
+        "low": 699847.5,
+        "metric": "net_recovered_paise",
+        "point": 851834.5833333334,
+        "strategy": "FixedSchedule",
+        "vs_baseline": "NoReschedule"
+      },
+      "scheduler_reference": "NoReschedule",
+      "strategy": {
+        "high": 590275.4166666666,
+        "level": 0.9,
+        "low": 98968.33333333333,
+        "metric": "net_recovered_paise",
+        "point": 364062.0833333333,
+        "strategy": "Blended",
+        "vs_baseline": "FixedSchedule"
+      }
+    },
+    "failure_rate": 0.06927083333333334,
+    "output_hash": "b5132e9b7b15f06543e852086d49414a399a52a547f2af7e45d4945994a1ffb6",
+    "reason_code_mix": {
+      "ACCOUNT_FROZEN": 0.0075,
+      "BANK_UNAVAILABLE": 0.1835,
+      "INSUFFICIENT_FUNDS": 0.4195,
+      "LIMIT_EXCEEDED": 0.0752,
+      "MANDATE_EXPIRED": 0.0286,
+      "TECHNICAL_DECLINE": 0.2857
+    }
+  },
+  "insufficient_funds_dominant": {
+    "decomposition": {
+      "baseline": "FixedSchedule",
+      "headline": "Blended",
+      "metric": "net_recovered_paise",
+      "rescheduling": {
+        "high": 1537543.75,
+        "level": 0.9,
+        "low": 1148562.8541666667,
+        "metric": "net_recovered_paise",
+        "point": 1339607.0833333333,
+        "strategy": "FixedSchedule",
+        "vs_baseline": "NoReschedule"
+      },
+      "scheduler_reference": "NoReschedule",
+      "strategy": {
+        "high": 1212311.8916666666,
+        "level": 0.9,
+        "low": 286248.4166666667,
+        "metric": "net_recovered_paise",
+        "point": 728097.75,
+        "strategy": "Blended",
+        "vs_baseline": "FixedSchedule"
+      }
+    },
+    "failure_rate": 0.15458333333333332,
+    "output_hash": "59edcc6b1febacb9ad3067031c467b11508deaad1dac9a88c67af2705f6f1046",
+    "reason_code_mix": {
+      "ACCOUNT_FROZEN": 0.0034,
+      "BANK_UNAVAILABLE": 0.0822,
+      "INSUFFICIENT_FUNDS": 0.8235,
+      "LIMIT_EXCEEDED": 0.0337,
+      "MANDATE_EXPIRED": 0.0128,
+      "TECHNICAL_DECLINE": 0.0445
+    }
+  },
+  "master_seed": 20260801,
+  "n_seeds": 12,
+  "technical_dominant": {
+    "decomposition": {
+      "baseline": "FixedSchedule",
+      "headline": "Blended",
+      "metric": "net_recovered_paise",
+      "rescheduling": {
+        "high": 1470386.6666666667,
+        "level": 0.9,
+        "low": 1198223.75,
+        "metric": "net_recovered_paise",
+        "point": 1329003.3333333333,
+        "strategy": "FixedSchedule",
+        "vs_baseline": "NoReschedule"
+      },
+      "scheduler_reference": "NoReschedule",
+      "strategy": {
+        "high": 180263.75,
+        "level": 0.9,
+        "low": 7069.166666666667,
+        "metric": "net_recovered_paise",
+        "point": 98968.33333333333,
+        "strategy": "Blended",
+        "vs_baseline": "FixedSchedule"
+      }
+    },
+    "failure_rate": 0.0940625,
+    "output_hash": "c99211f8e5a7c8a436d9079a14d277d2c52843cc6ae5484b846fe6071d32b868",
+    "reason_code_mix": {
+      "ACCOUNT_FROZEN": 0.0055,
+      "BANK_UNAVAILABLE": 0.1351,
+      "INSUFFICIENT_FUNDS": 0.0266,
+      "LIMIT_EXCEEDED": 0.0543,
+      "MANDATE_EXPIRED": 0.021,
+      "TECHNICAL_DECLINE": 0.7575
+    }
+  }
+}

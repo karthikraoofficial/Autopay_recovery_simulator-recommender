@@ -43,6 +43,9 @@ class StrategyMetrics(DomainModel):
     # number with terminations no policy change could ever release.
     terminated_hard_decline: int = Field(ge=0)
     days_to_recovery: tuple[int, ...] = ()
+    # Gross ₹ recovered in each billing month, zero-based, one entry per month of the
+    # run. SPEC §6 renders this; it is not derivable from the totals above.
+    recovered_paise_by_cycle: tuple[Paise, ...] = ()
 
     @property
     def recovery_rate(self) -> float:
@@ -83,6 +86,18 @@ class StrategyMetrics(DomainModel):
         return self.retry_attempts / self.episodes if self.episodes else 0.0
 
 
+def _by_cycle(recovered: Iterable[RecoveryEpisode], months: int) -> tuple[Paise, ...]:
+    """Fixed length, not the observed maximum. A strategy that recovered nothing in the
+    final month must still report a zero there, or two strategies' series would have
+    different lengths and could not be charted against each other."""
+    series = [0] * months
+    for episode in recovered:
+        if episode.cycle_index >= months:
+            raise ValueError(f"episode in month {episode.cycle_index} of a {months}-month run")
+        series[episode.cycle_index] += episode.amount_recovered_paise
+    return tuple(series)
+
+
 def summarise(
     strategy: str,
     episodes: Iterable[RecoveryEpisode],
@@ -91,6 +106,11 @@ def summarise(
     compliance_blocks: int = 0,
     compliance_reschedules: int = 0,
     terminated_hard_decline: int = 0,
+    # Required, with no default. A default would silently produce a zero-length monthly
+    # series for any caller that forgot it, and an empty chart is harder to notice than
+    # a missing argument.
+    *,
+    months: int,
 ) -> StrategyMetrics:
     episodes = tuple(episodes)
     recovered = [e for e in episodes if e.outcome is EpisodeOutcome.RECOVERED]
@@ -109,6 +129,7 @@ def summarise(
         compliance_reschedules=compliance_reschedules,
         terminated_hard_decline=terminated_hard_decline,
         days_to_recovery=tuple(sorted(e.days_to_recovery or 0 for e in recovered)),
+        recovered_paise_by_cycle=_by_cycle(recovered, months),
     )
 
 
@@ -116,6 +137,9 @@ def combine(strategy: str, parts: Iterable[StrategyMetrics]) -> StrategyMetrics:
     parts = tuple(parts)
     if not parts:
         raise ValueError(f"nothing to combine for {strategy}")
+    lengths = {len(p.recovered_paise_by_cycle) for p in parts}
+    if len(lengths) > 1:
+        raise ValueError(f"{strategy} combines runs of differing horizons: {sorted(lengths)}")
     return StrategyMetrics(
         strategy=strategy,
         episodes=sum(p.episodes for p in parts),
@@ -130,4 +154,7 @@ def combine(strategy: str, parts: Iterable[StrategyMetrics]) -> StrategyMetrics:
         compliance_reschedules=sum(p.compliance_reschedules for p in parts),
         terminated_hard_decline=sum(p.terminated_hard_decline for p in parts),
         days_to_recovery=tuple(sorted(d for p in parts for d in p.days_to_recovery)),
+        recovered_paise_by_cycle=tuple(
+            sum(values) for values in zip(*(p.recovered_paise_by_cycle for p in parts), strict=True)
+        ),
     )

@@ -850,6 +850,59 @@ assumptions:
     confidence: estimate
     notes: "Narrowed on plausibility, NOT fitted to a target mix. The only target available is itself invented, and tuning to it would produce a config that looks calibrated while being no better grounded."
 
+  # --- API / dashboard (SPEC §6) --------------------------------------------------
+
+  api.interactive_seeds:
+    value: 4
+    unit: count
+    source: "Chosen for a response time a person will sit through while moving a slider. Not a precision target, and far below harness.bootstrap_seeds."
+    confidence: estimate
+    notes: "An interactive run is the same model measured less precisely, not a different model. Four seeds gives intervals wide enough that a lift can look significant when it is not, which is why the API returns the seed count and the interval with every result and the dashboard shows both beside the number."
+
+  # --- Failure-mix presets (SPEC §6.1, dashboard input) ---------------------------
+  # SPEC §11 names the reason-code mix by vertical the largest uncertainty in the model,
+  # and phase 8 measured that strategy lift is not robust across it. So the mix is a
+  # dashboard input rather than a fixed config: a merchant picks the shape their book
+  # actually has, and sees the answer for that shape.
+  #
+  # These are NOT target distributions. `engine/calibration.py` reports a mix, it does
+  # not fit one, and nothing here changes that. Each preset is a setting of the engine
+  # knobs that *produces* a mix, and the mix each produces is measured and reported by
+  # `notebooks/phase8_presets.py`, never asserted. A preset is a hypothesis about a
+  # merchant's book, not a calibration against data nobody has.
+
+  preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma:
+    value: 1.45
+    unit: ratio
+    source: "Chosen so that thin-balance customers dominate the failure mix, per population.balance.cushion_lognormal_sigma's note that this parameter alone sets the insufficient-funds level. Not fitted to any merchant."
+    confidence: estimate
+    notes: "Describes a price-sensitive consumer book: low ticket, thin balances, failures that are a timing problem. This is the shape in which retry timing is worth the most."
+
+  preset.failure_mix.insufficient_funds_dominant.td_rate_max:
+    value: 0.012
+    unit: ratio
+    source: "Chosen to suppress technical declines so the insufficient-funds share dominates. Not a measured per-bank rate."
+    confidence: estimate
+
+  preset.failure_mix.technical_dominant.cushion_lognormal_sigma:
+    value: 0.30
+    unit: ratio
+    source: "Chosen so that balance is rarely the binding constraint, leaving bank-side failure as the dominant category. Not fitted."
+    confidence: estimate
+    notes: "Describes an affluent book on unreliable rails -- failures are the bank's fault, not the customer's. Retry timing against payroll has nothing to work with here, which is why strategy lift collapses under this preset."
+
+  preset.failure_mix.technical_dominant.td_rate_min:
+    value: 0.040
+    unit: ratio
+    source: "Chosen to raise the technical-decline floor across every bank in the book. NPCI publishes real per-bank rates; none has been read."
+    confidence: estimate
+
+  preset.failure_mix.technical_dominant.td_rate_max:
+    value: 0.140
+    unit: ratio
+    source: "See preset.failure_mix.technical_dominant.td_rate_min."
+    confidence: estimate
+
   # --- Customer reaction model (SPEC §2.3) ----------------------------------------
   # The cost side of retrying. Without these, every strategy converges on retrying
   # infinitely, which SPEC.md §2.3 names as the failure mode to avoid.
@@ -1232,6 +1285,18 @@ open_questions:
     question: "How much of their daily rail limit does a customer typically consume before a mandate debit lands? Unmeasured, and it alone decides whether LIMIT_EXCEEDED ever fires."
   - key: engine.daily_limit_consumption_lognormal_sigma
     question: "See engine.daily_limit_consumption_share_mean."
+  - key: api.interactive_seeds
+    question: "How few seeds can an interactive run use before its intervals are so wide that exploring with it is misleading rather than merely imprecise?"
+  - key: preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma
+    question: "Every preset.failure_mix.* value invents a book shape rather than measuring one. What reason-code mixes do real merchants in each vertical actually report? Until a pilot supplies counts, the dashboard's mix selector offers three guesses, and it says so."
+  - key: preset.failure_mix.insufficient_funds_dominant.td_rate_max
+    question: "See preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma."
+  - key: preset.failure_mix.technical_dominant.cushion_lognormal_sigma
+    question: "See preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma."
+  - key: preset.failure_mix.technical_dominant.td_rate_min
+    question: "See preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma. NPCI publishes per-bank technical-decline rates; reading that file would replace this preset with a measured one."
+  - key: preset.failure_mix.technical_dominant.td_rate_max
+    question: "See preset.failure_mix.technical_dominant.td_rate_min."
   - key: engine.reaction.revocation_base_hazard
     question: "The real cost of retry aggression: how often does an extra retry make a customer cancel? Needs pilot merchant churn data, and it is the number that decides whether aggressive strategies are profitable."
   - key: engine.reaction.revocation_attempt_exponent
