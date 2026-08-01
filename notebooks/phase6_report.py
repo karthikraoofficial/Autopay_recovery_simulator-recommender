@@ -45,36 +45,62 @@ def main(n_seeds: int) -> None:
     print()
     for name in names:
         m = report.for_strategy(name)
-        ci = {i.metric: i for i in report.intervals_for(name)}
+        # intervals_for returns BOTH the absolute interval and the paired difference
+        # against the baseline. Keying on metric alone silently lets the difference
+        # overwrite the absolute, which reads as a strategy with a negative recovery
+        # rate. They are different quantities and are kept apart.
+        absolute = {i.metric: i for i in report.intervals_for(name) if i.vs_baseline is None}
+        paired = {i.metric: i for i in report.intervals_for(name) if i.vs_baseline is not None}
 
-        def band(metric: str) -> str:
-            i = ci.get(metric)
-            return "n/a" if i is None else f"[{i.low:,.4f}, {i.high:,.4f}]"
-
-        def band_rs(metric: str) -> str:
-            i = ci.get(metric)
-            return "n/a" if i is None else f"[{rupees(i.low)}, {rupees(i.high)}]"
+        def band(metric: str, source: dict, money: bool = False) -> str:
+            i = source.get(metric)
+            if i is None:
+                return "n/a"
+            return (
+                f"[{rupees(i.low)}, {rupees(i.high)}]"
+                if money
+                else f"[{i.low:,.4f}, {i.high:,.4f}]"
+            )
 
         print(f"=== {name}")
-        print(f"    recovery rate        CI {band('recovery_rate')}   point {m.recovery_rate:.4f}")
+        # Every interval below is per seeded book, and so is the point beside it. The
+        # aggregate counters are 12-seed totals; printing a total point against a
+        # per-book interval would overstate the number by a factor of n_seeds.
+        for label, metric, money in (
+            ("recovery rate", "recovery_rate", False),
+            ("net to merchant/book", "net_recovered_paise", True),
+            ("gross recovered/book", "gross_recovered_paise", True),
+            ("induced revocations", "induced_revocations", False),
+        ):
+            i = absolute.get(metric)
+            point = "n/a"
+            if i is not None:
+                point = rupees(i.point) if money else f"{i.point:,.4f}"
+            print(f"    {label:20s} CI {band(metric, absolute, money)}   point {point}")
         print(
-            f"    net to merchant      CI {band_rs('net_recovered_paise')}"
-            f"   point {rupees(m.net_recovered_paise)}"
+            f"    compliance blocks    (counter, no CI)                point {m.compliance_blocks}"
         )
         print(
-            f"    gross recovered      CI {band_rs('gross_recovered_paise')}"
-            f"   point {rupees(m.gross_recovered_paise)}"
-        )
-        print(
-            f"    induced revocations  CI {band('induced_revocations')}"
-            f"   point {m.induced_revocations}"
-        )
-        print(f"    compliance blocks    (counter)                      point {m.compliance_blocks}")
-        print(
-            f"    hard-decline stops   (counter)                      "
+            f"    hard-decline stops   (counter, no CI)                "
             f"point {m.terminated_hard_decline}"
         )
-        print(f"    episodes {m.episodes}  attempts {m.total_attempts}  retries {m.retry_attempts}")
+        print(
+            f"    12-seed totals: episodes {m.episodes}  attempts {m.total_attempts}  "
+            f"retries {m.retry_attempts}  net {rupees(m.net_recovered_paise)}"
+        )
+        if paired:
+            print(f"    --- paired lift vs {a.value('harness.baseline_strategy')}")
+            for metric in ("recovery_rate", "net_recovered_paise", "induced_revocations"):
+                i = paired.get(metric)
+                if i is None:
+                    continue
+                money = metric.endswith("_paise")
+                point = rupees(i.point) if money else f"{i.point:,.4f}"
+                beats = "excludes 0" if (i.low > 0 or i.high < 0) else "SPANS 0"
+                print(
+                    f"        {metric:22s} CI {band(metric, paired, money)}"
+                    f"   point {point}   ({beats})"
+                )
         print()
 
     payload = {
