@@ -27,12 +27,19 @@ from rebound.engine.protocol import AttemptRequest, AttemptResult, PaymentEngine
 from rebound.harness.bootstrap import Interval, paired_intervals
 from rebound.harness.metrics import StrategyMetrics, combine, summarise
 from rebound.population.book import LAST_UNIVERSAL_DAY_OF_MONTH, Book, generate_book
+from rebound.strategies.bank_aware import BankAware
 from rebound.strategies.base import (
     CustomerObservable,
     LearningStrategy,
     ProposedRetry,
     RetryStrategy,
 )
+from rebound.strategies.blended import Blended
+from rebound.strategies.fixed_schedule import FixedSchedule
+from rebound.strategies.no_reschedule import NoReschedule
+from rebound.strategies.no_retry import NoRetry
+from rebound.strategies.reason_aware import ReasonAware
+from rebound.strategies.salary_aware import SalaryAware
 
 # Built fresh per strategy, so an engine that memoises draws cannot leak one strategy's
 # probes into another's results.
@@ -47,6 +54,40 @@ class SeedResult(DomainModel):
 
     def for_strategy(self, name: str) -> StrategyMetrics:
         return _pick(self.metrics, name)
+
+
+class LiftDecomposition(DomainModel):
+    """The headline split into the two things a merchant is actually being sold.
+
+    `rescheduling` is what re-presenting a retry that a timing rule blocked is worth. It
+    is scheduler plumbing: no reason codes, no inference, no model. `strategy` is what the
+    retry logic adds on top of a scheduler that already does that.
+
+    They are reported apart because they are bought apart, and because measurement showed
+    the first to be several times the second. A single combined number would sell plumbing
+    as intelligence — and the phase-7 audit found that when the harness abandoned blocked
+    retries, that same confusion made every strategy look worse than its baseline.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    metric: str = Field(min_length=1)
+    scheduler_reference: str = Field(min_length=1)
+    baseline: str = Field(min_length=1)
+    headline: str = Field(min_length=1)
+    rescheduling: Interval
+    strategy: Interval
+
+    def __str__(self) -> str:
+        return (
+            f"{self.metric}\n"
+            f"  rescheduling ({self.scheduler_reference} -> {self.baseline}): "
+            f"[{self.rescheduling.low:,.4g}, {self.rescheduling.high:,.4g}] "
+            f"(point {self.rescheduling.point:,.4g})\n"
+            f"  strategy     ({self.baseline} -> {self.headline}): "
+            f"[{self.strategy.low:,.4g}, {self.strategy.high:,.4g}] "
+            f"(point {self.strategy.point:,.4g})"
+        )
 
 
 class HarnessReport(DomainModel):
@@ -66,6 +107,39 @@ class HarnessReport(DomainModel):
     def intervals_for(self, name: str) -> tuple[Interval, ...]:
         return tuple(i for i in self.intervals if i.strategy == name)
 
+    def interval(self, strategy: str, metric: str, vs_baseline: bool = True) -> Interval | None:
+        for i in self.intervals_for(strategy):
+            if i.metric == metric and (i.vs_baseline is not None) == vs_baseline:
+                return i
+        return None
+
+    def decomposition(
+        self, metric: str = "net_recovered_paise", assumptions: Assumptions | None = None
+    ) -> LiftDecomposition | None:
+        """Both line items, or None if the run did not include the strategies to form them.
+
+        None rather than a partial answer: a decomposition missing its scheduler reference
+        would be indistinguishable from one where rescheduling is worth nothing.
+        """
+        assumptions = assumptions or load_assumptions()
+        scheduler = str(assumptions.value("harness.scheduler_reference_strategy"))
+        baseline = str(assumptions.value("harness.baseline_strategy"))
+        headline = str(assumptions.value("harness.headline_strategy"))
+        against_baseline = self.interval(scheduler, metric)
+        strategy = self.interval(headline, metric)
+        if against_baseline is None or strategy is None:
+            return None
+        return LiftDecomposition(
+            metric=metric,
+            scheduler_reference=scheduler,
+            baseline=baseline,
+            headline=headline,
+            # Stored as scheduler-minus-baseline (negative). Rescheduling lift is the
+            # gain going the other way, so the interval is turned round rather than
+            # re-bootstrapped against a different reference.
+            rescheduling=against_baseline.negated(strategy=baseline, vs_baseline=scheduler),
+            strategy=strategy,
+        )
 
 
 def _pick(metrics: Sequence[StrategyMetrics], name: str) -> StrategyMetrics:
@@ -293,6 +367,28 @@ def _run_strategy(
         compliance_reschedules=len(guard.reschedules),
         terminated_hard_decline=terminated,
     )
+
+
+def default_strategies(assumptions: Assumptions | None = None) -> list[RetryStrategy]:
+    """Every strategy the harness reports on, in the order results are read in.
+
+    Four references then three strategies. The references are not decoration: `NoRetry`
+    is the natural-recovery floor, `NoReschedule` is what a merchant runs today,
+    `FixedSchedule` is what they run with a scheduler that re-presents blocked retries,
+    and only the difference above that is attributable to retry logic. Dropping
+    `NoReschedule` from the set collapses the two line items of `LiftDecomposition` into
+    one number that reads as strategy lift and mostly is not.
+    """
+    assumptions = assumptions or load_assumptions()
+    return [
+        NoRetry(),
+        NoReschedule(assumptions),
+        FixedSchedule(assumptions),
+        ReasonAware(assumptions),
+        SalaryAware(assumptions),
+        BankAware(assumptions),
+        Blended(assumptions),
+    ]
 
 
 def run_paired(

@@ -67,6 +67,20 @@ assumptions:
     confidence: primary
     notes: "Paired lift intervals are computed as strategy minus this."
 
+  harness.scheduler_reference_strategy:
+    value: "NoReschedule"
+    unit: name
+    source: "Phase-7 audit. T+1/T+3/T+7 with blocked retries abandoned rather than re-presented -- what a merchant without a re-presenting scheduler actually runs today."
+    confidence: primary
+    notes: "The lower end of the headline decomposition. Reported lift is split at harness.baseline_strategy into a rescheduling half and a strategy half, because the first is scheduler plumbing and the second is retry logic, and quoting the total would sell one as the other."
+
+  harness.headline_strategy:
+    value: "Blended"
+    unit: name
+    source: "SPEC.md §4.6 and §6: the dashboard's single comparison is the baseline against Blended."
+    confidence: primary
+    notes: "The upper end of the headline decomposition."
+
   strategy.fixed_schedule.retry_offsets_days:
     value: [1, 3, 7]
     unit: days

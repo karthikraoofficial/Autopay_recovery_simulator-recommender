@@ -44,6 +44,24 @@ class Interval(DomainModel):
     level: float = Field(gt=0.0, lt=1.0)
     vs_baseline: str | None = None
 
+    def negated(self, strategy: str, vs_baseline: str) -> Interval:
+        """The same comparison read the other way round: B - A from A - B.
+
+        Exact rather than approximate. Every bound here is a quantile of one bootstrap
+        distribution, and negating a distribution negates its quantiles and swaps the
+        tails, so this is the identical interval relabelled — not a second estimate that
+        could disagree with the first.
+        """
+        return self.model_copy(
+            update={
+                "strategy": strategy,
+                "vs_baseline": vs_baseline,
+                "point": -self.point,
+                "low": -self.high,
+                "high": -self.low,
+            }
+        )
+
     def __str__(self) -> str:
         span = f"[{self.low:,.4g}, {self.high:,.4g}]"
         tail = f" vs {self.vs_baseline}" if self.vs_baseline else ""
