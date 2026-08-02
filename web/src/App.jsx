@@ -336,21 +336,58 @@ function Result({ result, job, profile }) {
 
 const POLL_MS = 1000;
 
+// Every response body goes through here. Calling `.json()` directly is what produced
+// "Failed to execute 'json' on 'Response': Unexpected end of JSON input" when the API was
+// down: the Vite proxy answers with an empty body, and parsing that throws a browser
+// message that tells the reader nothing about what actually went wrong.
+async function getJson(url, options) {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch {
+    // fetch only rejects when the request never completed at all.
+    throw new Error(
+      `Cannot reach the simulation API at ${url}. Start it with: ` +
+        `python -m uvicorn rebound.api.app:app --port 8000`
+    );
+  }
+  const text = await response.text();
+  if (!text) {
+    throw new Error(
+      `The API returned an empty response (HTTP ${response.status}) for ${url}. ` +
+        "This usually means the API process is not running behind the dev-server proxy."
+    );
+  }
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`The API returned a non-JSON response (HTTP ${response.status}) for ${url}.`);
+  }
+  if (!response.ok) throw new Error(body.detail ?? `HTTP ${response.status} from ${url}`);
+  return body;
+}
+
 export default function App() {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [sizing, setSizing] = useState("interactive");
   const [result, setResult] = useState(null);
   const [assumptions, setAssumptions] = useState(null);
+  // Distinct from `assumptions === null`. Without it a failed load is indistinguishable
+  // from a slow one and the panel says "Loading…" forever.
+  const [assumptionsError, setAssumptionsError] = useState(null);
   const [estimates, setEstimates] = useState({});
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/assumptions`)
-      .then((r) => r.json())
-      .then(setAssumptions)
-      .catch((e) => setError(String(e)));
+    getJson(`${API}/assumptions`)
+      .then((view) => {
+        setAssumptions(view);
+        setAssumptionsError(null);
+      })
+      .catch((e) => setAssumptionsError(String(e.message ?? e)));
   }, []);
 
   // Re-price both runs whenever the profile changes, so the cost is on screen before a
@@ -358,19 +395,23 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const price = async (which) => {
-      const response = await fetch(`${API}/simulate/estimate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile, sizing: which, master_seed: 20260801 }),
-      });
-      const body = await response.json();
-      return response.ok ? body : { error: body.detail ?? "cannot size this run" };
+      try {
+        return await getJson(`${API}/simulate/estimate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile, sizing: which, master_seed: 20260801 }),
+        });
+      } catch (e) {
+        // Shown on the estimate card rather than swallowed. Silently dropping this left
+        // the run buttons quoting "…" with no indication that anything had failed.
+        return { error: String(e.message ?? e) };
+      }
     };
-    Promise.all([price("interactive"), price("publication")])
-      .then(([interactive, publication]) => {
+    Promise.all([price("interactive"), price("publication")]).then(
+      ([interactive, publication]) => {
         if (!cancelled) setEstimates({ interactive, publication });
-      })
-      .catch(() => {});
+      }
+    );
     return () => {
       cancelled = true;
     };
@@ -387,16 +428,13 @@ export default function App() {
     try {
       // Every run goes through the job queue, publication or not. One code path, and the
       // progress display is then the same whether a run takes 35 seconds or 40 minutes.
-      const submitted = await fetch(`${API}/simulate/jobs`, { method: "POST", headers, body });
-      const created = await submitted.json();
-      if (!submitted.ok) throw new Error(created.detail ?? "could not start the run");
+      const created = await getJson(`${API}/simulate/jobs`, { method: "POST", headers, body });
       setJob(created);
 
       let status = created;
       while (status.state === "running") {
         await new Promise((r) => setTimeout(r, POLL_MS));
-        const polled = await fetch(`${API}/simulate/jobs/${created.id}`);
-        status = await polled.json();
+        status = await getJson(`${API}/simulate/jobs/${created.id}`);
         setJob(status);
       }
       if (status.state === "failed") throw new Error(status.error ?? "the run failed");
@@ -430,7 +468,7 @@ export default function App() {
       {result ? <Result result={result} job={job} profile={profile} /> : null}
       {result ? <Downloads result={result} profile={profile} /> : null}
 
-      <Assumptions view={assumptions} />
+      <Assumptions view={assumptions} error={assumptionsError} />
     </main>
   );
 }

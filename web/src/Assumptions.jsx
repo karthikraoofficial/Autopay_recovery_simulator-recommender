@@ -10,7 +10,7 @@ function value(v) {
   return String(v);
 }
 
-export default function Assumptions({ view }) {
+export default function Assumptions({ view, error }) {
   const [query, setQuery] = useState("");
   const [estimatesOnly, setEstimatesOnly] = useState(false);
 
@@ -23,6 +23,23 @@ export default function Assumptions({ view }) {
       return `${a.key} ${a.source} ${a.notes ?? ""}`.toLowerCase().includes(q);
     });
   }, [view, query, estimatesOnly]);
+
+  if (error) {
+    // Never a permanent "Loading…". SPEC §6.3 requires this panel to be always visible,
+    // so when it cannot be shown the page has to say that plainly rather than imply the
+    // numbers are still on their way.
+    return (
+      <section>
+        <h2>Assumptions</h2>
+        <p className="error">Could not load the assumptions.</p>
+        <p className="hint">{error}</p>
+        <p className="hint">
+          Every number on this page comes from that file. Until it loads, nothing above has
+          its sources attached and should not be quoted.
+        </p>
+      </section>
+    );
+  }
 
   if (!view) {
     return (

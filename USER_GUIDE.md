@@ -9,7 +9,7 @@ figures with confidence intervals, one chart, and the full list of every assumpt
 used to get there.
 
 **It is not a measurement of any merchant.** No real payment data has ever gone into it.
-147 of its 159 numbers are marked `estimate`, meaning "our guess, no source read". The
+148 of its 160 numbers are marked `estimate`, meaning "our guess, no source read". The
 guide below is as much about what the output *doesn't* mean as what it does.
 
 ---
@@ -525,7 +525,7 @@ confidence level on every number. Filter by keyword, or tick "estimates only".
 |---|---|---|
 | `primary` | From an RBI/NPCI circular or published data file | 8 |
 | `practitioner` | Stated by someone operating real mandate volume | 4 |
-| `estimate` | **Our guess. No source read.** | **147** |
+| `estimate` | **Our guess. No source read.** | **148** |
 
 Every `estimate` carries the open question that must be answered before it is defensible.
 This section exists to be read by the person trying to catch you out. Show it to them

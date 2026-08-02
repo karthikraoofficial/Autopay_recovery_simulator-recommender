@@ -53,8 +53,22 @@ export default function Downloads({ result, profile }) {
     }).toString();
 
   const fetchText = async (url) => {
-    const response = await fetch(url);
+    let response;
+    try {
+      response = await fetch(url);
+    } catch {
+      throw new Error(
+        "Cannot reach the simulation API. Start it with: " +
+          "python -m uvicorn rebound.api.app:app --port 8000"
+      );
+    }
     const text = await response.text();
+    if (!text) {
+      throw new Error(
+        `The API returned an empty response (HTTP ${response.status}). This usually means ` +
+          "the API process is not running behind the dev-server proxy."
+      );
+    }
     if (!response.ok) {
       let detail = text;
       try {
