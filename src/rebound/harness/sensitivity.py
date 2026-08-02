@@ -113,9 +113,26 @@ def _mix_group(key: str) -> tuple[str, ...] | None:
     return None
 
 
-def _clamp(key: str, entry: Assumption, raw: float, ceiling: float) -> tuple[float, bool]:
-    if _is_probability(key, entry) and raw > ceiling:
-        return ceiling, True
+def _clamp(
+    key: str, entry: Assumption, raw: float, ceiling: float, floor: float
+) -> tuple[float, bool]:
+    """Keep a swept probability inside the range where it still describes a world.
+
+    The floor applies only where the *unswept* value already sits above it, so a small
+    probability sweeps freely (a 0.005 technical-decline rate halves to 0.0025, which is
+    a real bank) while a near-1 reliability figure cannot be halved into nonsense. Before
+    this, `population.bank.uptime_daytime` at 0.995 swept down to 0.4975 — banks offline
+    half the time — and that world produced a lift 118x the base, dominating the ranking
+    with a scenario nobody is claiming could happen.
+
+    A clamped point is NOT a +/-50% sweep and its swing is not comparable to an unclamped
+    one; every clamp is flagged and listed in the output for that reason.
+    """
+    if _is_probability(key, entry):
+        if raw > ceiling:
+            return ceiling, True
+        if float(entry.value) >= floor and raw < floor:
+            return floor, True
     domain = _DOMAIN_BY_UNIT.get(entry.unit)
     if domain is not None and not domain[0] <= raw <= domain[1]:
         return float(min(max(raw, domain[0]), domain[1])), True
@@ -132,7 +149,8 @@ def scaled(assumptions: Assumptions, key: str, factor: float) -> tuple[Assumptio
         raise ValueError(f"{key} cannot be swept: {UNSWEEPABLE[key]}")
     entry = assumptions.assumptions[key]
     ceiling = float(assumptions.value("harness.sensitivity.probability_ceiling"))
-    raw, clamped = _clamp(key, entry, float(entry.value) * factor, ceiling)
+    floor = float(assumptions.value("harness.sensitivity.probability_floor"))
+    raw, clamped = _clamp(key, entry, float(entry.value) * factor, ceiling, floor)
     value: float | int = raw
     if isinstance(entry.value, int):
         # A calendar value may legitimately be 0 (midnight, Monday); every other count

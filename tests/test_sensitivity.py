@@ -11,6 +11,7 @@ from rebound.harness.sensitivity import (
     Sweep,
     SweepPoint,
     SweepResult,
+    UnderpoweredSweepError,
     fragile_first,
     run_sweep,
     scaled,
@@ -222,3 +223,61 @@ def test_fragility_is_not_claimed_when_the_base_is_not_significant() -> None:
     result = _result(base, _point(200_000.0, 100_000.0, 300_000.0), base)
     assert not result.base_is_significant
     assert not result.is_fragile
+
+
+# --- the probability floor (added after the first phase-7 sweep) ---------------
+
+
+def test_a_near_one_reliability_figure_cannot_be_halved_into_nonsense(
+    shipped: Assumptions,
+) -> None:
+    """The first phase-7 sweep took population.bank.uptime_daytime from 0.995 to 0.4975 --
+    banks offline half the time -- and that world produced a lift 118x the base, dominating
+    the fragility ranking with a scenario nobody claims could happen."""
+    floor = float(shipped.value("harness.sensitivity.probability_floor"))
+    swept, clamped = scaled(shipped, "population.bank.uptime_daytime", 0.5)
+    assert clamped
+    assert swept.value("population.bank.uptime_daytime") == floor
+
+
+def test_a_small_probability_still_sweeps_freely(shipped: Assumptions) -> None:
+    """The floor applies only where the unswept value is already above it. A 0.005
+    technical-decline rate halving to 0.0025 is a real bank, not nonsense, and clamping it
+    would silently narrow the question being asked."""
+    base = float(shipped.value("population.bank.td_rate_min"))
+    swept, clamped = scaled(shipped, "population.bank.td_rate_min", 0.5)
+    assert not clamped
+    assert swept.value("population.bank.td_rate_min") == pytest.approx(base * 0.5)
+
+
+def test_every_clamped_point_is_flagged(shipped: Assumptions) -> None:
+    """A clamped key is swept over a narrowed range, so its swing is not comparable to an
+    unclamped key's. If the flag were lost, a small swing would read as robustness."""
+    for factor in (0.5, 1.5):
+        _, clamped = scaled(shipped, "population.bank.uptime_daytime", factor)
+        assert clamped, f"uptime at x{factor} left the domain without being flagged"
+
+
+def test_the_sweep_refuses_to_rank_around_a_null_base(shipped: Assumptions) -> None:
+    """The guard the first sweep bypassed. `is_fragile` is undefined when the base is not
+    significant, so a ranking computed there flags nothing by construction and reads as
+    'no assumption matters'. run_sweep must raise rather than produce it."""
+
+    class _NullBase(Sweep):
+        def base_point(self) -> SweepPoint:  # type: ignore[override]
+            return SweepPoint(
+                key="<unswept>",
+                factor=1.0,
+                lift_point=109_572.0,
+                lift_low=-21_207.0,
+                lift_high=233_282.0,
+                metric="net_recovered_paise",
+            )
+
+    sweep = _NullBase(
+        assumptions=shipped,
+        build=lambda a: [FixedSchedule(a)],
+        subject="Blended",
+    )
+    with pytest.raises(UnderpoweredSweepError, match="contains zero"):
+        run_sweep(sweep, ["book.avg_ticket_paise"])

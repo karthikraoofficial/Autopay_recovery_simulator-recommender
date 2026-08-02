@@ -283,6 +283,13 @@ assumptions:
     confidence: estimate
     notes: "Every point clamped by this is flagged in the sweep output. A clamped key's upward sensitivity is understated by construction, because the sweep it was asked for is not representable."
 
+  harness.sensitivity.probability_floor:
+    value: 0.90
+    unit: ratio
+    source: "Not a modelled quantity. A guard so that a reliability figure near 1 cannot be halved into a world nobody is claiming could happen."
+    confidence: estimate
+    notes: "Applies ONLY where the unswept value already sits above it, so small probabilities sweep freely: a 0.005 technical-decline rate halves to 0.0025 untouched. Added after the first phase-7 sweep, where population.bank.uptime_daytime swept from 0.995 to 0.4975 -- banks offline half the time -- and that world produced a lift 118x the base, dominating the fragility ranking. WHAT A CLAMP MEANS: a clamped key is no longer being swept +/-50%, it is being swept over a narrowed range, so its swing is NOT comparable to an unclamped key's. A small swing on a clamped key is not evidence of robustness. Every clamped key is listed explicitly in the sweep output for that reason. The principled fix for reliability quantities is to sweep the complement (downtime) rather than the level, which would need no clamp at all; that is an open question below."
+
   harness.sensitivity.seeds:
     value: 12
     unit: count
@@ -1179,6 +1186,8 @@ open_questions:
     question: "See strategy.reason_aware.max_retries."
   - key: harness.sensitivity.probability_ceiling
     question: "Not a question about the world. It exists because a ±50% sweep is not representable on a probability near 1; the affected keys are flagged clamped in the output."
+  - key: harness.sensitivity.probability_floor
+    question: "Should a reliability quantity near 1 be swept on its complement (downtime x1.5) rather than on its level, which would remove the need for a floor entirely and make the sweep mean what it says? Clamping is the conservative stand-in, not the right answer."
   - key: harness.sensitivity.seeds
     question: "How many seeds does the sweep need before a fragility ranking is stable rather than reshuffled by noise?"
   - key: harness.sensitivity.book_size
