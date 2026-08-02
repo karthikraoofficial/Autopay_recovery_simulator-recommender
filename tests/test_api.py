@@ -619,3 +619,40 @@ def test_strategies_endpoint_lists_the_references_as_well_as_the_strategies(
     names = {s["name"] for s in client.get("/strategies").json()}
     assert {"NoRetry", "NoReschedule", "FixedSchedule", "Blended"} <= names
     assert len(strategy_descriptions()) == len(names)
+
+
+# --- downloadable artifacts (phase 8.9) ---------------------------------------
+
+
+def test_the_result_reports_the_seeds_actually_run(result: SimulationResult) -> None:
+    """The dashboard's trace picker offers exactly these. Derived client-side as
+    master_seed + i it would drift from `run_experiment`, and /trace would then answer
+    with a valid trace of a population the headline never simulated."""
+    assert len(result.seeds) == result.n_seeds
+    assert result.seeds[0] == result.master_seed
+    assert list(result.seeds) == sorted(set(result.seeds))
+
+
+def test_segments_can_be_served_as_the_rendered_text_report(client: TestClient) -> None:
+    """The banner and the plain-language verdicts are the point of the text form: they are
+    what stop a segment number being read as a finding it has not earned."""
+    response = client.get("/segments", params={"book_size": 40, "format": "text"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "attachment" in response.headers["content-disposition"]
+    assert "TESTS PERFORMED" in response.text
+    assert "NEGATIVE CONTROL - EXPECTED NULL" in response.text
+
+
+def test_the_text_report_is_the_same_run_as_the_json(client: TestClient) -> None:
+    """One renderer, not two. If the text form ever came from a separate code path it
+    could disagree with the JSON while both looked right."""
+    params = {"book_size": 40, "master_seed": MASTER_SEED}
+    data = client.get("/segments", params=params).json()
+    text = client.get("/segments", params={**params, "format": "text"}).text
+    assert f"{data['tests_performed']} TESTS PERFORMED" in text
+    assert f"total episodes {data['total_episodes']:,}" in text
+
+
+def test_an_unknown_segment_format_is_refused(client: TestClient) -> None:
+    assert client.get("/segments", params={"book_size": 40, "format": "pdf"}).status_code == 422

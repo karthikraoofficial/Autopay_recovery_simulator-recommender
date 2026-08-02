@@ -30,7 +30,7 @@ from rebound.api.service import (
     strategy_descriptions,
 )
 from rebound.config import load_assumptions
-from rebound.harness.segments import SegmentReport
+from rebound.harness.segments import SegmentReport, render
 from rebound.harness.trace import MultipleSeedsError, Table, Trace, build_trace, to_csv
 
 # The Vite dev server. A simulator that runs locally and talks to nothing else does not
@@ -109,7 +109,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"no job {job_id}")
         return status
 
-    @app.get("/segments", response_model=SegmentReport)
+    # response_model=None: this route returns either a SegmentReport or a text
+    # response, and FastAPI cannot build one response model from that union.
+    @app.get("/segments", response_model=None)
     def get_segments(
         book_size: int = 2000,
         avg_ticket_inr: float = 499.0,
@@ -119,7 +121,8 @@ def create_app() -> FastAPI:
         performance_fee_rate: float = 0.15,
         sizing: Sizing = Sizing.INTERACTIVE,
         master_seed: int = 20260801,
-    ) -> SegmentReport:
+        fmt: str = Query(default="json", pattern="^(json|text)$", alias="format"),
+    ) -> SegmentReport | PlainTextResponse:
         """SPEC §12. Defaults to interactive sizing: a publication-sized segment run takes
         as long as a publication headline run, and a GET should not hold that open."""
         try:
@@ -131,9 +134,22 @@ def create_app() -> FastAPI:
                 failure_mix=failure_mix,
                 performance_fee_rate=performance_fee_rate,
             )
-            return segment_report(profile, master_seed, sizing)
+            report = segment_report(profile, master_seed, sizing)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if fmt == "text":
+            # The rendered report, not a second formatter: the banner and the
+            # plain-language verdicts are what stop the numbers being misread.
+            return PlainTextResponse(
+                render(report),
+                media_type="text/plain",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="rebound-segments-seed{master_seed}.txt"'
+                    )
+                },
+            )
+        return report
 
     # response_model=None because this route returns either a Trace or a CSV response,
     # and FastAPI cannot build one response model from that union.

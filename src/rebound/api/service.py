@@ -116,6 +116,10 @@ class SimulationResult(BaseModel):
     estimated_seconds: float
     confidence_level: float
     master_seed: int
+    # The seeds actually run, so a caller offering a per-seed choice can only ever
+    # offer one that was in this run. Derived client-side it would drift, and /trace
+    # would answer with a valid trace of a population the headline never saw.
+    seeds: tuple[int, ...] = Field(min_length=1)
     output_hash: str
     retry_inherits_original_notice: bool
 
@@ -262,6 +266,7 @@ def simulate(
         estimated_seconds=plan.estimated_seconds,
         confidence_level=float(configured.value("harness.confidence_level")),
         master_seed=master_seed,
+        seeds=report.seeds,
         output_hash=report.output_hash,
         retry_inherits_original_notice=bool(
             configured.value("compliance.pre_debit_notification.retry_inherits_original_notice")

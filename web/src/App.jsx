@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Chart from "./Chart.jsx";
 import Assumptions from "./Assumptions.jsx";
+import Downloads from "./Downloads.jsx";
 import { duration, inr, pct } from "./format.js";
 
 const API = "/api";
@@ -246,7 +247,7 @@ function StrategyTable({ result }) {
   );
 }
 
-function Result({ result, job }) {
+function Result({ result, job, profile }) {
   // Actual wall-clock time comes from the job, not from the result. `SimulationResult`
   // deliberately carries no timing: the same seed and config must produce a byte-identical
   // payload, and a wall-clock field would break that for no gain.
@@ -426,7 +427,8 @@ export default function App() {
 
       {busy ? <Progress job={job} sizing={sizing} /> : null}
 
-      {result ? <Result result={result} job={job} /> : null}
+      {result ? <Result result={result} job={job} profile={profile} /> : null}
+      {result ? <Downloads result={result} profile={profile} /> : null}
 
       <Assumptions view={assumptions} />
     </main>
