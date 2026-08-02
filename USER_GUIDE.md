@@ -309,10 +309,17 @@ help, because they supply more copies of the same uninformative day.
 The headline tells you how big the opportunity is. The segment report tells you **where**
 it sits. It has no dashboard yet; it is an API call and a text report:
 
+After a run completes, the **Take away** section offers *Download segment report* as a
+text file. It re-runs the simulation rather than reading a cached result, so it costs about
+what the original run did. By script:
+
 ```bash
+curl "http://localhost:8000/segments?book_size=400&format=text" > segments.txt
+
+# JSON instead, if you want to process it:
 curl "http://localhost:8000/segments?book_size=400" > segments.json
 
-# or, readable, with the plain-text renderer:
+# or standalone, with the control's own summary printed last:
 python notebooks/phase85_segments.py 400 8
 ```
 
@@ -434,7 +441,29 @@ would claim a debit was made that never was.
 
 ### Getting it
 
+**From the dashboard.** After a run completes, a **Take away** section appears below the
+result with two downloads: *Download segment report* and, for the trace, a seed picker plus
+*Attempts (.csv)* and *Mandate attributes (.csv)*. Nothing is rendered on the page —
+these are files you take away. Filenames carry the seed and the output hash, so a
+download can always be traced back to the run that produced it.
+
+Two things to know before you click:
+
+- **Both re-run the simulation.** They are not reading a cached result. A segment report
+  costs about what the original run cost — roughly 45 seconds for a 200-mandate fast run,
+  and as long as the publication run itself if you started from one. The trace is cheaper:
+  one seed rather than all of them.
+- **The trace is unavailable above 2,000 mandates.** The endpoint caps there, and a
+  smaller trace would be a *different population* from the result above it, not a subset
+  of it. The buttons disable themselves and say so rather than handing you a mismatched
+  file.
+
+**Or by script**, which is the better route if you want them repeatedly or in a pipeline:
+
 ```bash
+# the segment report, as the rendered text
+curl "http://localhost:8000/segments?book_size=200&format=text" > segments.txt
+
 # JSON, structured
 curl "http://localhost:8000/trace?seed=20260801&book_size=200" > trace.json
 
@@ -612,6 +641,7 @@ Be direct about these. They are what a competent CFO will ask.
 | Change what's simulated | `config/assumptions.yaml` — every number lives here, none in code |
 | Re-measure the failure-mix presets | `python notebooks/phase8_presets.py 12` |
 | Print the segment report | `python notebooks/phase85_segments.py 400 8` |
+| Download either artifact | the **Take away** section, after a run completes |
 | Row-level trace of one seed | `GET /trace?seed=N` (JSON) or `&format=csv&table=attempts` |
 | Check nothing broke | `pytest -q` |
 | API docs | http://localhost:8000/docs |
