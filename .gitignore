@@ -6,3 +6,5 @@ __pycache__/
 *.egg-info/
 *.db
 ~$*
+node_modules/
+dist/
