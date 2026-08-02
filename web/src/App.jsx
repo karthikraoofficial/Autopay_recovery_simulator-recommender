@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Chart from "./Chart.jsx";
 import Assumptions from "./Assumptions.jsx";
-import { inr, pct } from "./format.js";
+import { duration, inr, pct } from "./format.js";
 
 const API = "/api";
 
@@ -41,7 +41,7 @@ function Field({ label, hint, children }) {
   );
 }
 
-function Inputs({ profile, setProfile, sizing, setSizing, onRun, busy }) {
+function Inputs({ profile, setProfile, onRun, busy, estimates }) {
   const set = (key) => (event) => {
     const raw = event.target.value;
     setProfile({ ...profile, [key]: key === "failure_mix" ? raw : Number(raw) });
@@ -95,16 +95,83 @@ function Inputs({ profile, setProfile, sizing, setSizing, onRun, busy }) {
 
       <div className="controls">
         <button className="primary" onClick={() => onRun("interactive")} disabled={busy}>
-          {busy && sizing === "interactive" ? "Running…" : "Run (fast)"}
+          Run (fast)
         </button>
         <button onClick={() => onRun("publication")} disabled={busy}>
-          {busy && sizing === "publication" ? "Running…" : "Publication run (slow)"}
+          Publication run
         </button>
         <span className="hint" style={{ marginTop: 0, maxWidth: "52ch" }}>
-          A fast run is the same model measured with fewer seeds, not a different one. Its intervals are wider, and
-          wide enough that a lift can look real when it is not. The publication run is the number to quote.
+          The fast run caps the book at {estimates.interactive?.book_size ?? "…"} mandates and uses fewer seeds, so its
+          rupee figures are <strong>per simulated book of that size, not yours</strong>. The publication run simulates
+          your actual book and is the number to quote.
         </span>
       </div>
+
+      {/* The cost of each run, before anyone commits to one. */}
+      <div className="estimates">
+        {["interactive", "publication"].map((which) => {
+          const e = estimates[which];
+          const label = which === "interactive" ? "Fast run" : "Publication run";
+          if (!e) return null;
+          if (e.error) {
+            return (
+              <div key={which} className="estimate error">
+                {label}: {e.error}
+              </div>
+            );
+          }
+          return (
+            <div key={which} className="estimate">
+              <strong>{label}</strong> — {e.book_size.toLocaleString("en-IN")} mandates × {e.n_seeds} seeds ≈{" "}
+              {duration(e.estimated_seconds)}
+              {e.book_size_capped ? (
+                <span className="capped">
+                  {" "}
+                  capped from {e.requested_book_size.toLocaleString("en-IN")}
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function Progress({ job, sizing }) {
+  const pct = job?.total_steps ? job.completed_steps / job.total_steps : 0;
+  return (
+    <section>
+      <h2>{sizing === "publication" ? "Publication run" : "Fast run"} in progress</h2>
+      <div className="bar">
+        <div className="bar-fill" style={{ width: `${Math.max(2, pct * 100)}%` }} />
+      </div>
+      <div className="precision" style={{ marginTop: 14, marginBottom: 0 }}>
+        <div>
+          <span className="k">Elapsed</span>
+          <span className="v">{duration(job?.elapsed_seconds ?? 0)}</span>
+        </div>
+        <div>
+          <span className="k">Expected</span>
+          <span className="v">{duration(job?.estimated_seconds ?? 0)}</span>
+        </div>
+        <div>
+          <span className="k">Progress</span>
+          <span className="v">
+            {job?.completed_steps ?? 0} / {job?.total_steps ?? 0} strategy-seeds
+          </span>
+        </div>
+        <div>
+          <span className="k">Book</span>
+          <span className="v">
+            {(job?.book_size ?? 0).toLocaleString("en-IN")} × {job?.n_seeds ?? 0} seeds
+          </span>
+        </div>
+      </div>
+      <p className="hint">
+        The expected duration is measured from this machine and is only a guide. Elapsed time is shown beside it so a
+        bad estimate is visible as one.
+      </p>
     </section>
   );
 }
@@ -179,7 +246,11 @@ function StrategyTable({ result }) {
   );
 }
 
-function Result({ result }) {
+function Result({ result, job }) {
+  // Actual wall-clock time comes from the job, not from the result. `SimulationResult`
+  // deliberately carries no timing: the same seed and config must produce a byte-identical
+  // payload, and a wall-clock field would break that for no gain.
+  const elapsed = job?.elapsed_seconds;
   return (
     <section>
       <h2>Result</h2>
@@ -199,6 +270,14 @@ function Result({ result }) {
           <span className="v">{result.book_size_simulated.toLocaleString("en-IN")} mandates</span>
         </div>
         <div>
+          <span className="k">Elapsed</span>
+          <span className="v">{elapsed === undefined ? "—" : duration(elapsed)}</span>
+        </div>
+        <div>
+          <span className="k">Expected</span>
+          <span className="v">{duration(result.estimated_seconds)}</span>
+        </div>
+        <div>
           <span className="k">Confidence level</span>
           <span className="v">{pct(result.confidence_level, 0)}</span>
         </div>
@@ -209,6 +288,15 @@ function Result({ result }) {
           </span>
         </div>
       </div>
+
+      {result.book_size_capped ? (
+        <div className="not-significant">
+          These rupee figures are <strong>per simulated book of {result.book_size_simulated.toLocaleString("en-IN")}{" "}
+          mandates</strong>, not your {result.book_size_requested.toLocaleString("en-IN")}. They are deliberately not
+          scaled up: doing so would assume mandates are independent and identically distributed, which nothing here has
+          tested. For a figure that is genuinely your book's, use the publication run.
+        </div>
+      ) : null}
 
       <p className="lede">
         The headline is two line items and is never summed. Phase 7 measured the first to be several times the second:
@@ -245,11 +333,15 @@ function Result({ result }) {
   );
 }
 
+const POLL_MS = 1000;
+
 export default function App() {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [sizing, setSizing] = useState("interactive");
   const [result, setResult] = useState(null);
   const [assumptions, setAssumptions] = useState(null);
+  const [estimates, setEstimates] = useState({});
+  const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -260,19 +352,54 @@ export default function App() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  const run = async (which) => {
-    setBusy(true);
-    setSizing(which);
-    setError(null);
-    try {
-      const response = await fetch(`${API}/simulate`, {
+  // Re-price both runs whenever the profile changes, so the cost is on screen before a
+  // button is pressed rather than discovered by waiting.
+  useEffect(() => {
+    let cancelled = false;
+    const price = async (which) => {
+      const response = await fetch(`${API}/simulate/estimate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile, sizing: which, master_seed: 20260801 }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.detail ?? "simulation failed");
-      setResult(body);
+      return response.ok ? body : { error: body.detail ?? "cannot size this run" };
+    };
+    Promise.all([price("interactive"), price("publication")])
+      .then(([interactive, publication]) => {
+        if (!cancelled) setEstimates({ interactive, publication });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
+
+  const run = async (which) => {
+    setBusy(true);
+    setSizing(which);
+    setError(null);
+    setResult(null);
+    setJob(null);
+    const body = JSON.stringify({ profile, sizing: which, master_seed: 20260801 });
+    const headers = { "Content-Type": "application/json" };
+    try {
+      // Every run goes through the job queue, publication or not. One code path, and the
+      // progress display is then the same whether a run takes 35 seconds or 40 minutes.
+      const submitted = await fetch(`${API}/simulate/jobs`, { method: "POST", headers, body });
+      const created = await submitted.json();
+      if (!submitted.ok) throw new Error(created.detail ?? "could not start the run");
+      setJob(created);
+
+      let status = created;
+      while (status.state === "running") {
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        const polled = await fetch(`${API}/simulate/jobs/${created.id}`);
+        status = await polled.json();
+        setJob(status);
+      }
+      if (status.state === "failed") throw new Error(status.error ?? "the run failed");
+      setResult(status.result);
     } catch (e) {
       setError(String(e.message ?? e));
     } finally {
@@ -289,14 +416,7 @@ export default function App() {
         It is not a measurement of any merchant.
       </p>
 
-      <Inputs
-        profile={profile}
-        setProfile={setProfile}
-        sizing={sizing}
-        setSizing={setSizing}
-        onRun={run}
-        busy={busy}
-      />
+      <Inputs profile={profile} setProfile={setProfile} onRun={run} busy={busy} estimates={estimates} />
 
       {error ? (
         <section>
@@ -304,7 +424,9 @@ export default function App() {
         </section>
       ) : null}
 
-      {result ? <Result result={result} /> : null}
+      {busy ? <Progress job={job} sizing={sizing} /> : null}
+
+      {result ? <Result result={result} job={job} /> : null}
 
       <Assumptions view={assumptions} />
     </main>

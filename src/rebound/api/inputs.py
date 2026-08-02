@@ -75,16 +75,27 @@ class Sizing(StrEnum):
     """How much compute the run is given. Not a modelling choice, and kept separate from
     `MerchantProfile` for that reason.
 
-    The two are genuinely different operations. `INTERACTIVE` is for moving a slider and
-    watching the answer move; `PUBLICATION` is the number that goes in front of a
-    merchant. They differ only in book size and seed count, so an interactive run is not
-    a different model — it is the same model measured less precisely, and its intervals
-    are correspondingly wider. The API returns the seed count and the interval with every
-    result so that the difference is visible rather than implied.
+    The two are genuinely different operations. `INTERACTIVE` caps the book so that moving
+    a control and seeing the answer move takes seconds; `PUBLICATION` simulates the
+    merchant's actual book and is the number that goes in front of them. Neither is a
+    different model — an interactive run is the same model measured less precisely, on a
+    smaller population, and its intervals are correspondingly wider.
+
+    **Interactive results are per simulated book of `SizingPlan.book_size` and are never
+    scaled to the merchant's book.** Multiplying by `book_size / simulated` would be a
+    one-line convenience and it is deliberately absent: it asserts that mandates are
+    independent and identically distributed, which nothing here has tested, and real books
+    concentrate on signup dates, verticals and a handful of banks. A fabricated figure that
+    looks like the merchant's own is worse than an honest one that does not. If a merchant
+    wants the number for their book, run `PUBLICATION`, which simulates it.
     """
 
     INTERACTIVE = "interactive"
     PUBLICATION = "publication"
+
+
+class BookSizeTooLargeError(ValueError):
+    """A publication run whose runtime would be measured in hours."""
 
 
 class SizingPlan(BaseModel):
@@ -92,24 +103,55 @@ class SizingPlan(BaseModel):
 
     sizing: Sizing
     book_size: int = Field(gt=0)
+    requested_book_size: int = Field(gt=0)
     n_seeds: int = Field(gt=1)
+    # Shown before the user commits to a run. Machine-dependent and approximate; the
+    # dashboard displays elapsed time beside it so a bad estimate is visible as one.
+    estimated_seconds: float = Field(ge=0.0)
+
+    @property
+    def is_capped(self) -> bool:
+        """Whether the simulated book is smaller than the merchant asked for. The UI must
+        say so rather than presenting the result as their book's."""
+        return self.book_size < self.requested_book_size
 
 
 def sizing_plan(assumptions: Assumptions, sizing: Sizing, book_size: int) -> SizingPlan:
-    """Publication sizing is the setting at which the phase-7 sweep found the comparison
-    significant, so it is read from the sensitivity keys rather than invented here. It is
-    smaller than the merchant's stated book and runs more seeds: precision on this
-    comparison comes from seeds, not from book size."""
+    """Interactive caps the book for speed; publication simulates the one the merchant has.
+
+    Publication seed count comes from the sensitivity keys, which is the setting at which
+    the phase-7 sweep found the comparison significant. Its book size does not: precision
+    comes from seeds, and using the merchant's real book is what makes the quoted rupee
+    figure theirs rather than an extrapolation.
+    """
+    rate = float(assumptions.value("api.seconds_per_mandate_seed"))
     if sizing is Sizing.PUBLICATION:
+        cap = int(assumptions.value("api.publication_book_size_cap"))
+        seeds = int(assumptions.value("harness.sensitivity.seeds"))
+        if book_size > cap:
+            hours = book_size * seeds * rate / 3600
+            raise BookSizeTooLargeError(
+                f"a publication run on {book_size:,} mandates would take about "
+                f"{hours:.1f} hours. The cap is {cap:,} "
+                f"(api.publication_book_size_cap). Run the smaller interactive sizing, "
+                f"or raise the cap deliberately."
+            )
         return SizingPlan(
             sizing=sizing,
-            book_size=int(assumptions.value("harness.sensitivity.book_size")),
-            n_seeds=int(assumptions.value("harness.sensitivity.seeds")),
+            book_size=book_size,
+            requested_book_size=book_size,
+            n_seeds=seeds,
+            estimated_seconds=book_size * seeds * rate,
         )
+    # A ceiling, not a replacement: a merchant smaller than the cap is simulated whole.
+    size = min(book_size, int(assumptions.value("api.interactive_book_size")))
+    seeds = int(assumptions.value("api.interactive_seeds"))
     return SizingPlan(
         sizing=sizing,
-        book_size=book_size,
-        n_seeds=int(assumptions.value("api.interactive_seeds")),
+        book_size=size,
+        requested_book_size=book_size,
+        n_seeds=seeds,
+        estimated_seconds=size * seeds * rate,
     )
 
 

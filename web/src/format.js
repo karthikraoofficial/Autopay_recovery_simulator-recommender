@@ -8,3 +8,10 @@ export function inr(value) {
 export function pct(value, digits = 1) {
   return `${(value * 100).toFixed(digits)}%`;
 }
+
+export function duration(seconds) {
+  if (seconds < 90) return `${Math.round(seconds)}s`;
+  const minutes = seconds / 60;
+  if (minutes < 90) return `${minutes.toFixed(minutes < 10 ? 1 : 0)} min`;
+  return `${(minutes / 60).toFixed(1)} hr`;
+}

@@ -11,19 +11,41 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
-from rebound.api.inputs import MerchantProfile, Sizing
+from rebound.api.inputs import (
+    BookSizeTooLargeError,
+    FailureMix,
+    MerchantProfile,
+    Sizing,
+    sizing_plan,
+)
+from rebound.api.jobs import JobRegistry, JobStatus
 from rebound.api.service import (
     AssumptionsView,
     SimulationResult,
     StrategyDescription,
     assumptions_view,
+    segment_report,
     simulate,
     strategy_descriptions,
 )
+from rebound.config import load_assumptions
+from rebound.harness.segments import SegmentReport
 
 # The Vite dev server. A simulator that runs locally and talks to nothing else does not
 # need a configurable origin list, and SPEC §7 says no cloud until a merchant asks.
 DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+class RunEstimate(BaseModel):
+    """The cost of a run, without running it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    book_size: int
+    requested_book_size: int
+    book_size_capped: bool
+    n_seeds: int
+    estimated_seconds: float
 
 
 class SimulateRequest(BaseModel):
@@ -39,6 +61,7 @@ class SimulateRequest(BaseModel):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="rebound", version="0.1.0")
+    app.state.jobs = JobRegistry()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(DEV_ORIGINS),
@@ -46,10 +69,67 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.post("/simulate/estimate", response_model=RunEstimate)
+    def post_estimate(request: SimulateRequest) -> RunEstimate:
+        """What a run would cost, before anyone commits to it. Cheap: no simulation."""
+        try:
+            plan = sizing_plan(load_assumptions(), request.sizing, request.profile.book_size)
+        except BookSizeTooLargeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return RunEstimate(
+            book_size=plan.book_size,
+            requested_book_size=plan.requested_book_size,
+            book_size_capped=plan.is_capped,
+            n_seeds=plan.n_seeds,
+            estimated_seconds=plan.estimated_seconds,
+        )
+
     @app.post("/simulate", response_model=SimulationResult)
     def post_simulate(request: SimulateRequest) -> SimulationResult:
+        """Synchronous. Suitable for interactive sizing, which is capped to seconds; a
+        publication run on a real book takes minutes and belongs on /simulate/jobs."""
         try:
             return simulate(request.profile, request.master_seed, request.sizing)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/simulate/jobs", response_model=JobStatus, status_code=202)
+    def post_job(request: SimulateRequest) -> JobStatus:
+        try:
+            return app.state.jobs.submit(request.profile, request.master_seed, request.sizing)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/simulate/jobs/{job_id}", response_model=JobStatus)
+    def get_job(job_id: str) -> JobStatus:
+        status = app.state.jobs.status(job_id)
+        if status is None:
+            raise HTTPException(status_code=404, detail=f"no job {job_id}")
+        return status
+
+    @app.get("/segments", response_model=SegmentReport)
+    def get_segments(
+        book_size: int = 2000,
+        avg_ticket_inr: float = 499.0,
+        upi_autopay_share: float = 0.55,
+        enach_share: float = 0.30,
+        failure_mix: FailureMix = FailureMix.CURRENT,
+        performance_fee_rate: float = 0.15,
+        sizing: Sizing = Sizing.INTERACTIVE,
+        master_seed: int = 20260801,
+    ) -> SegmentReport:
+        """SPEC §12. Defaults to interactive sizing: a publication-sized segment run takes
+        as long as a publication headline run, and a GET should not hold that open."""
+        try:
+            profile = MerchantProfile(
+                book_size=book_size,
+                avg_ticket_inr=avg_ticket_inr,
+                upi_autopay_share=upi_autopay_share,
+                enach_share=enach_share,
+                failure_mix=failure_mix,
+                performance_fee_rate=performance_fee_rate,
+            )
+            return segment_report(profile, master_seed, sizing)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

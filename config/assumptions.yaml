@@ -74,6 +74,13 @@ assumptions:
     confidence: primary
     notes: "The lower end of the headline decomposition. Reported lift is split at harness.baseline_strategy into a rescheduling half and a strategy half, because the first is scheduler plumbing and the second is retry logic, and quoting the total would sell one as the other."
 
+  harness.floor_strategy:
+    value: "NoRetry"
+    unit: name
+    source: "SPEC.md §4.2: the natural-recovery floor. Named here so the segment report can exclude it from the candidate set."
+    confidence: primary
+    notes: "A reference, not a candidate. Testing it for 'does it beat the baseline' asks a question with a known answer and spends a Bonferroni test on it, making every real comparison stricter for nothing."
+
   harness.headline_strategy:
     value: "Blended"
     unit: name
@@ -850,7 +857,60 @@ assumptions:
     confidence: estimate
     notes: "Narrowed on plausibility, NOT fitted to a target mix. The only target available is itself invented, and tuning to it would produce a config that looks calibrated while being no better grounded."
 
+  # --- Segment report (SPEC §12) --------------------------------------------------
+  # Where in the book the opportunity sits. Every dimension is something a merchant can
+  # observe in their own book without this system; nothing here segments on ground truth.
+
+  segment.cap_band_quantiles:
+    value: [0.25, 0.5, 0.75]
+    unit: ratio
+    source: "Quartiles. A conventional cut, not one derived from any structure in the cap distribution."
+    confidence: estimate
+    notes: "Applied to each seed's own book, so the realised paise edges move with the profile and are reported alongside the bands. SPEC §11: this axis is a negative control -- caps carry no signal in the current generator."
+
+  segment.failure_frequency_band_edges:
+    value: [2, 4]
+    unit: count
+    source: "Chosen to separate a mandate that failed once from one that failed repeatedly, at round numbers. Not derived from any observed distribution."
+    confidence: estimate
+    notes: "Bands are 1, 2-3, 4+ episodes over the horizon, plus an explicit 'no failures' segment. Edges are exclusive upper bounds of the preceding band."
+
+  segment.min_episodes:
+    value: 60
+    unit: count
+    source: "Guess at the point below which a bootstrapped recovery interval over this many seeds is too wide to mean anything. Not a power calculation."
+    confidence: estimate
+    notes: "Segments below this report 'insufficient data' rather than an interval. Small segments are the main way a segment report manufactures findings, so this should be raised rather than lowered when in doubt."
+
+  segment.bootstrap_resamples:
+    value: 20000
+    unit: count
+    source: "Higher than harness.bootstrap_resamples because a Bonferroni-corrected verdict tests a far smaller tail probability, and a bootstrap p-value cannot resolve below 1/resamples."
+    confidence: estimate
+    notes: "With N tests and alpha 0.10, the corrected threshold is 0.10/N. At 20,000 resamples the smallest resolvable p-value is 0.00005, which covers up to 2,000 tests. The report refuses to publish a corrected verdict it cannot resolve."
+
   # --- API / dashboard (SPEC §6) --------------------------------------------------
+
+  api.interactive_book_size:
+    value: 200
+    unit: count
+    source: "Chosen for a response time a person will sit through. At the measured cost below this is roughly 35 seconds across four seeds."
+    confidence: estimate
+    notes: "A ceiling, not a replacement: a merchant with fewer mandates than this is simulated at their real size. Interactive rupee figures are per simulated book of this size and are never scaled up to the merchant's book -- see the no-extrapolation note in api/inputs.py."
+
+  api.publication_book_size_cap:
+    value: 25000
+    unit: count
+    source: "A guard against a typo queueing a multi-hour run, not a modelling limit. At the measured cost below, 25,000 mandates over 12 seeds is around three and a half hours."
+    confidence: estimate
+    notes: "The publication run simulates the merchant's actual book, so its runtime is linear in this. Raise it only if someone is genuinely willing to wait."
+
+  api.seconds_per_mandate_seed:
+    value: 0.045
+    unit: seconds
+    source: "Measured on the development machine: 44.5-45.3 ms per mandate per seed, flat across book sizes 100-400, for the full seven-strategy comparison over 12 months."
+    confidence: estimate
+    notes: "Used only to show the user an expected duration before they commit to a run. It is a property of the machine, not of the model, and nothing in the simulation reads it. It will be wrong on other hardware; the dashboard shows elapsed time beside it so the estimate can be seen to be off."
 
   api.interactive_seeds:
     value: 4
@@ -1285,6 +1345,20 @@ open_questions:
     question: "How much of their daily rail limit does a customer typically consume before a mandate debit lands? Unmeasured, and it alone decides whether LIMIT_EXCEEDED ever fires."
   - key: engine.daily_limit_consumption_lognormal_sigma
     question: "See engine.daily_limit_consumption_share_mean."
+  - key: segment.cap_band_quantiles
+    question: "Quartiles are a convention, not a finding. Once caps correlate with income (SPEC §11), what cut actually separates books that behave differently?"
+  - key: segment.failure_frequency_band_edges
+    question: "What repeat-failure counts distinguish a timing problem from a customer who has stopped paying? Needs pilot merchant data."
+  - key: segment.min_episodes
+    question: "At what episode count does a bootstrapped segment interval stop being noise? Should be set from a target interval width rather than guessed."
+  - key: segment.bootstrap_resamples
+    question: "Not a question about the world. Set by the smallest p-value the correction needs to resolve."
+  - key: api.interactive_book_size
+    question: "How small can an interactive book be before it stops resembling the merchant's own, given that its results are per simulated book and are never extrapolated?"
+  - key: api.publication_book_size_cap
+    question: "Not a question about the world. A typo guard, set by how long anyone will wait rather than by anything modelled."
+  - key: api.seconds_per_mandate_seed
+    question: "Machine-dependent, not a property of the model. Re-measure on the machine the dashboard runs on, or drop the up-front estimate and show elapsed time alone."
   - key: api.interactive_seeds
     question: "How few seeds can an interactive run use before its intervals are so wide that exploring with it is misleading rather than merely imprecise?"
   - key: preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma

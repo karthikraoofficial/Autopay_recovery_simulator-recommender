@@ -262,6 +262,7 @@ rebound/
 | 6 | Strategy 3 (`ReasonAware`); 1 and 2 already exist from phase 2 | `ReasonAware` beats `FixedSchedule` with non-overlapping CIs |
 | 7 | Strategies 4–6 + `NoReschedule` reference | Sensitivity sweep run **at powered sizing (400 mandates, 12 seeds)** and documented. A sweep run where the base effect is not significant produces sign-flips of noise, not fragility — the harness raises `UnderpoweredSweepError` rather than emitting that list. |
 | 8 | API + dashboard | End-to-end from six inputs to one chart |
+| 8.5 | Segment report (§12) | Segments reconcile to the headline; every verdict corrected for multiplicity |
 | 9 | `MLRanked` | Only if 4–6 plateau. **Phase 7 evidence says skip it:** rescheduling (plumbing, no model) is worth ~4× the best retry logic and is significant under every reason-code mix. Do not build this without a specific reason that survives that finding. |
 
 ---
@@ -269,6 +270,10 @@ rebound/
 ## 10. Out of scope
 
 Explicitly not building: real PG integration, webhook ingestion, customer messaging, KYC, merchant auth, multi-tenancy, billing. This is a simulator. When it convinces someone, then build the product.
+
+**Engine performance optimisation is out of scope.** The simulation costs roughly 45 ms per mandate per seed for the full seven-strategy comparison (measured phase 8, flat across book sizes). That is slow, and it is deliberately not being fixed: the cost sits in the measurement core, and any change to it requires re-verifying every phase 4–7 result against its recorded output hash. The runtime is managed at the edges instead — the interactive run caps its book, the publication run goes to a background job with a progress indicator. Revisit only if a real user complains about it, never preemptively.
+
+**Extrapolating a small run to a larger book is out of scope, permanently.** Multiplying a 400-mandate result by `book_size / 400` is a one-line convenience and it must not be added. It asserts that mandates are independent and identically distributed — untested here, and false in real books, which concentrate on signup dates, verticals and a handful of banks. A fabricated figure that looks like the merchant's own is worse than an honest one that does not. The publication run simulates the merchant's actual book; that is the supported way to get their number. See the note on `Sizing` in `api/inputs.py`.
 
 ---
 
@@ -283,6 +288,34 @@ Flag these in `assumptions.yaml` as `confidence: estimate` until verified:
 - eNACH clearing calendar and presentation cutoffs
 - Realistic reason-code mix by vertical — **unknown until a pilot merchant shares data. This is the largest uncertainty in the model and must be labelled as such on the dashboard.**
 
+### Known limitation, measured phase 8.5 — the population has no ticket dispersion
+
+**Per-mandate ticket is constant at `book.avg_ticket_paise`.** `generate_mandates` draws a lognormal ticket per mandate, but the harness debits `min(book.merchant.avg_ticket_paise, mandate.max_amount_paise)`, and the drawn ticket survives only in the mandate cap. Measured on a 2,000-mandate book: **99.85% of mandates debit exactly the same amount**, and only 4 distinct debit amounts exist in the whole book.
+
+Two consequences, neither of them cosmetic:
+
+- **Real books have ticket dispersion and this one does not.** A high-ticket mandate plausibly fails more often on insufficient funds, since it is a larger claim on the same balance. If that is right, the real opportunity is *more concentrated* in a minority of mandates than this model can show, and the current output understates that concentration.
+- **`mandate.max_amount_paise` is not a usable proxy for it, and carries no signal at all.** Caps are drawn in a different RNG stream from every customer attribute and are independent of all of them (measured on 4,000 mandates: ρ = −0.012 income, +0.000 spend decay, +0.000 balance volatility, −0.010 salary day, −0.035 intent). The median cap is 3× the debit amount, so the cap binds on **0.12%** of mandates and has essentially no causal path to any outcome. First-attempt failure rate across cap quartiles varies by 0.57pp, non-monotonically (Q3 > Q4) — noise.
+
+  **This is a property of the current generator, not a finding about merchants.** In a real book a mandate cap is set by the merchant with the customer's income and ticket in view, so it would correlate with both. Here it correlates with nothing. Any segmentation on cap band is therefore a *negative control* — an axis known to be empty, useful for checking that a significance procedure does not manufacture winners, and not to be read as evidence about real books.
+
+  Both this and the constant-ticket limitation above are candidates for the same post-v0.1 population fix, and should be fixed together: giving tickets dispersion without also linking caps to income would leave the cap axis just as empty.
+
+**Candidate for the first post-v0.1 engine change**, in its own commit after tagging: it changes every phase 4–7 number and each would need re-verifying against its recorded output hash. Until then, any segmentation on ticket or cap is a negative control, not a finding.
+
+
+### Measured phase 8.5 — segment findings
+
+Both measured on a 400-mandate book over 12 months, 8 seeds, 90% CI, Bonferroni-corrected across all 72 tests. See `notebooks/phase85_segments.py`.
+
+- **`INSUFFICIENT_FUNDS` is the largest pocket of unaddressed opportunity, and it is blocked on data rather than on logic.** It is the biggest episode segment in the book — **39.9% of episodes and 39.9% of ₹ at risk** — and **no strategy beats `FixedSchedule` in it after correction**. `SalaryAware` leads it on the uncorrected interval and does not survive the adjustment.
+
+  The reason is already recorded above: payroll timing is unidentifiable from payment telemetry, so the one strategy whose whole purpose is to time a retry against a salary credit has nothing reliable to time against. This is the largest identified gap in the model and **it does not close with better retry logic.** It closes with an external data source — account-aggregator consent, a payroll date declared at signup, or an issuer signal — or not at all. Any roadmap that proposes to attack this segment by improving the scheduler is attacking the wrong constraint.
+
+- **The winning strategy differs by rail, which no single global strategy captures.** `UPI_AUTOPAY` favours `ReasonAware`; `ENACH` favours `BankAware`. Both survive correction. That is a plausible mechanism rather than a surprise — UPI is real-time so a reason-code branch acts immediately, whereas eNACH is batch-cleared and dominated by presentation windows and bank timing, which is exactly what `BankAware` reads.
+
+  **Worth investigating post-v0.1: a rail-routed strategy that dispatches to a different policy per rail, measured against the best single global strategy.** It is not obviously a win — routing adds a degree of freedom and therefore a way to overfit the simulated book — so it needs its own paired comparison against `Blended`, not an assumption that combining the two rail winners must beat both.
+
 ### Resolved by measurement, phase 7
 
 - **Per-mandate attempt history cannot identify a customer's payroll date.** Not a tuning problem and not fixable by a better estimator: it is unidentifiable from this data. Every mandate bills on one calendar day, so the observable history is one day-of-month repeated. The likelihood is then maximised by placing payroll immediately before that day — because a debit is likeliest to succeed just after a credit — regardless of when payroll actually is. Measured over 1,191 mandates: the estimate lands on the mandate's own **billing** day 93.7% of the time, and against the true salary day is within 2 days only 14.6% of the time, *worse than the 17.9% a uniform guess over 28 candidate days achieves*. On the 6.3% of mandates whose attempt history is varied enough to pull the estimate off the billing day, accuracy rises to 29.3% within 2 days — weak signal, not none, and confined to a minority.
@@ -290,3 +323,58 @@ Flag these in `assumptions.yaml` as `confidence: estimate` until verified:
   **Consequence: salary-timing requires an external data source** (bank statement / account-aggregator consent, payroll-date declaration at signup, or an issuer signal). It cannot be recovered from payment telemetry alone, and no amount of history fixes it — more cycles supply more copies of the same uninformative day.
 
   `SalaryAware` and `strategies/salary_inference.py` are **kept deliberately**, along with `test_a_single_billing_day_collapses_the_estimate_onto_that_day`, as executable documentation of why. Do not delete them to tidy up, and do not report `SalaryAware`'s measured lift as evidence that inferred salary timing works — a `BillingDayAnchor` control that skips inference entirely scores exactly zero lift, so what the estimator mostly does is reproduce the baseline.
+
+---
+
+## 12. Segment report (phase 8.5)
+
+A per-segment breakdown of the headline, so a merchant can see **where** in their book the opportunity sits rather than only its total size.
+
+**It is not a per-customer listing, and must never become one.** These customers are synthetic. A row-per-customer report reads as an operational action list for people who do not exist, and would be acted on as if it were one.
+
+### 12.1 Segment dimensions
+
+Cut only on things a real merchant can observe in their own book *without our system*:
+
+| Dimension | Definition |
+|---|---|
+| **Rail** | `UPI_AUTOPAY` / `ENACH` / `CARD_EMANDATE`. |
+| **Mandate cap band** | Quantiles of `mandate.max_amount_paise` over that seed's book; fractions in `assumptions.yaml`, realised paise edges reported. **A negative control — see §12.5.** |
+| **Dominant reason code** | Modal reason code over the mandate's failed *opening* attempts. Ties broken by `ReasonCode` enum order. A hard decline does not override the mode; it is one observation among others. |
+| **Failure frequency band** | Episodes per mandate over the horizon, banded on edges from `assumptions.yaml`. Mandates with no failed cycle form an explicit `no failures` segment. |
+
+**Segment assignment is computed once, from the `harness.scheduler_reference_strategy` run, and reused for every strategy.** If each strategy segmented on its own history, retries would move mandates between segments and a baseline-versus-strategy comparison would no longer be within-segment. It is also the honest definition: the reference run is what the merchant is doing today, so it is what they can actually observe.
+
+### 12.2 Reported per segment
+
+Across the full seed set, with intervals before point estimates:
+
+- Segment size: share of mandates, share of episodes, share of ₹ at risk
+- Baseline recovery rate under `NoReschedule` and under `FixedSchedule`
+- **Rescheduling lift and strategy lift, kept separate, never summed** — as §6.2
+- Winning strategy, or explicitly *no strategy beats `FixedSchedule`*
+- Net ₹ per mandate per year, so segments of different sizes are comparable
+
+### 12.3 Cut from the same runs, never re-simulated
+
+Segments are aggregated from the episodes of the *same* seeded paired runs that produce the headline. Re-simulating would silently allow the segment numbers and the headline to disagree. A test asserts that, per dimension, segment episode counts and ₹ at risk sum to the run totals.
+
+### 12.4 Multiple comparisons
+
+With N segments some will clear zero by chance, and a report that presents only the winners is a machine for finding them.
+
+- The family is **every segment × every candidate strategy, across all dimensions at once** — not per dimension. A reader scanning the page for a winner is running every test simultaneously, whatever the dimensions are nominally called.
+- The **total test count is stated next to the results**, not in a footnote.
+- Only the **corrected verdict is published.** There is no uncorrected column: if both are available, the uncorrected one is what ends up in a deck.
+- Where a raw interval clears zero but does not survive correction, the report **says so in words** rather than presenting it as a near-miss.
+- Any segment below `segment.min_episodes` reports **`insufficient data`**, not an interval.
+
+### 12.5 The negative control
+
+Mandate cap band is reported in its own section, labelled **expected null**, and never among the findings. §11 records why: caps are generated independently of income, balance and salary day (|ρ| < 0.04) and bind on 0.12% of mandates, so the axis carries no signal.
+
+This makes it an instrument. **A known-empty axis that produces winners proves the significance procedure is broken**, so a test asserts that no cap band survives correction. That test failing means either the generator changed or the statistics did, and both need investigating before any segment result is believed.
+
+### 12.6 Recommendation text
+
+Derived from the measured result, never a template with numbers substituted in. Each verdict produces a materially different sentence, and where nothing wins it says so plainly rather than reaching for the least-bad option.

@@ -5,6 +5,7 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
+from typing import Protocol
 
 from pydantic import ConfigDict, Field
 
@@ -44,6 +45,29 @@ from rebound.strategies.salary_aware import SalaryAware
 # Built fresh per strategy, so an engine that memoises draws cannot leak one strategy's
 # probes into another's results.
 EngineFactory = Callable[[Assumptions, int], PaymentEngine]
+
+# Called with (completed, total) after each strategy finishes, purely so a long run can
+# show progress. It receives counts and returns nothing: it cannot reach the RNG, the
+# book, or the metrics, so a run with a callback and a run without produce the same
+# output hash.
+ProgressCallback = Callable[[int, int], None]
+
+
+class RunObserver(Protocol):
+    """Sees each mandate and each episode as a run produces them, for analyses that need
+    per-mandate detail the aggregate counters have thrown away (SPEC §12).
+
+    Read-only by contract: an observer receives finished objects and returns nothing, so
+    it cannot reach the RNG or alter a decision. That is what lets the segment report be
+    cut from the *same* runs as the headline instead of a second simulation, which could
+    silently disagree with it.
+    """
+
+    def saw_mandate(self, strategy: str, seed: int, mandate: Mandate) -> None: ...
+
+    def saw_episode(
+        self, strategy: str, seed: int, mandate: Mandate, episode: RecoveryEpisode
+    ) -> None: ...
 
 
 class SeedResult(DomainModel):
@@ -324,7 +348,12 @@ def _episode(
 
 
 def _run_strategy(
-    strategy: RetryStrategy, book: Book, engine: PaymentEngine, assumptions: Assumptions
+    strategy: RetryStrategy,
+    book: Book,
+    engine: PaymentEngine,
+    assumptions: Assumptions,
+    seed: int = 0,
+    observer: RunObserver | None = None,
 ) -> StrategyMetrics:
     max_attempts = int(assumptions.value("harness.max_attempts_per_cycle"))
     fee_rate = float(assumptions.value("harness.performance_fee_rate"))
@@ -353,6 +382,8 @@ def _run_strategy(
         customer = customers[mandate.customer_id]
         run = _MandateRun(mandate, customer, banks[customer.bank_id], book)
         amount = min(book.merchant.avg_ticket_paise, mandate.max_amount_paise)
+        if observer is not None:
+            observer.saw_mandate(strategy.name, seed, mandate)
         for cycle_index in range(book.months):
             if not mandate.is_debitable:
                 break
@@ -363,6 +394,8 @@ def _run_strategy(
             terminated += stopped
             if episode is not None:
                 episodes.append(episode)
+                if observer is not None:
+                    observer.saw_episode(strategy.name, seed, mandate, episode)
     return summarise(
         strategy.name,
         episodes,
@@ -403,6 +436,8 @@ def run_paired(
     seed: int,
     assumptions: Assumptions | None = None,
     engine_factory: EngineFactory = FailureEngine,
+    on_strategy_done: Callable[[], None] | None = None,
+    observer: RunObserver | None = None,
 ) -> HarnessReport:
     """Every strategy sees a deep copy of the same book and the same engine seed, so the
     populations are identical and the outcomes are common random numbers. Differences
@@ -415,11 +450,21 @@ def run_paired(
     if not strategies:
         raise ValueError("run_paired needs at least one strategy")
     assumptions = assumptions or load_assumptions()
-    metrics = tuple(
-        _run_strategy(s, copy.deepcopy(book), engine_factory(assumptions, seed), assumptions)
-        for s in strategies
-    )
-    seed_result = SeedResult(seed=seed, metrics=metrics)
+    metrics = []
+    for strategy in strategies:
+        metrics.append(
+            _run_strategy(
+                strategy,
+                copy.deepcopy(book),
+                engine_factory(assumptions, seed),
+                assumptions,
+                seed,
+                observer,
+            )
+        )
+        if on_strategy_done is not None:
+            on_strategy_done()
+    seed_result = SeedResult(seed=seed, metrics=tuple(metrics))
     return _report(seed, (seed_result,), [s.name for s in strategies], assumptions)
 
 
@@ -429,16 +474,29 @@ def run_experiment(
     assumptions: Assumptions | None = None,
     n_seeds: int | None = None,
     engine_factory: EngineFactory = FailureEngine,
+    progress: ProgressCallback | None = None,
+    observer: RunObserver | None = None,
 ) -> HarnessReport:
     """SPEC §5.1: bootstrap confidence intervals over N seeds. `run_paired` is the single
     seed case and carries no intervals — one seed cannot support one."""
     assumptions = assumptions or load_assumptions()
     n_seeds = n_seeds or int(assumptions.value("harness.bootstrap_seeds"))
     seeds = [master_seed + i for i in range(n_seeds)]
+    total = n_seeds * len(strategies)
+    done = 0
+
+    def step() -> None:
+        nonlocal done
+        done += 1
+        if progress is not None:
+            progress(done, total)
+
     per_seed = []
     for seed in seeds:
         book = generate_book(assumptions, seed)
-        single = run_paired(book, strategies, seed, assumptions, engine_factory)
+        single = run_paired(
+            book, strategies, seed, assumptions, engine_factory, step, observer
+        )
         per_seed.append(single.per_seed[0])
     return _report(master_seed, tuple(per_seed), [s.name for s in strategies], assumptions)
 

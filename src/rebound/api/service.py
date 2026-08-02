@@ -10,12 +10,18 @@ honest headline is two line items and this module will not serve any other shape
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from rebound.api.inputs import MerchantProfile, Sizing, sizing_plan
 from rebound.config import Assumption, Assumptions, load_assumptions
 from rebound.harness.bootstrap import Interval
-from rebound.harness.runner import HarnessReport, default_strategies, run_experiment
+from rebound.harness.runner import (
+    HarnessReport,
+    ProgressCallback,
+    default_strategies,
+    run_experiment,
+)
+from rebound.harness.segments import SegmentCollector, SegmentReport, build_report
 
 PAISE_PER_RUPEE = 100
 
@@ -43,10 +49,18 @@ class LiftLine(BaseModel):
     net_point_inr: float
     level: float = Field(gt=0.0, lt=1.0)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def significant(self) -> bool:
         """Whether the net interval excludes zero. The dashboard must not render a bar
-        that reads as a positive result when this is false."""
+        that reads as a positive result when this is false.
+
+        `computed_field`, not a bare `property`: Pydantic v2 omits plain properties from
+        `model_dump`, so this was absent from the response body and the dashboard read it
+        as `undefined` — falsy — and showed the not-significant warning on every result,
+        including strictly positive ones. A predicate the UI depends on has to be in the
+        payload, not merely on the Python object.
+        """
         return self.net_low_inr > 0.0 or self.net_high_inr < 0.0
 
 
@@ -93,7 +107,13 @@ class SimulationResult(BaseModel):
     strategies: tuple[StrategyLine, ...]
     sizing: Sizing
     book_size_simulated: int
+    book_size_requested: int
+    # True when the simulated book is smaller than the merchant's. The rupee figures are
+    # then per simulated book and are NOT theirs. Nothing here scales them up — see the
+    # no-extrapolation note on `Sizing`.
+    book_size_capped: bool
     n_seeds: int
+    estimated_seconds: float
     confidence_level: float
     master_seed: int
     output_hash: str
@@ -207,17 +227,23 @@ def simulate(
     master_seed: int,
     sizing: Sizing = Sizing.INTERACTIVE,
     assumptions: Assumptions | None = None,
+    progress: ProgressCallback | None = None,
 ) -> SimulationResult:
     """One paired experiment, reported as two line items and one chart.
 
     Deterministic given `master_seed` and the profile: `output_hash` is returned so a
-    caller can check that two runs of the same inputs produced identical counters.
+    caller can check that two runs of the same inputs produced identical counters. The
+    progress callback cannot reach the simulation, so passing one does not change the hash.
     """
     base = assumptions or load_assumptions()
     plan = sizing_plan(base, sizing, profile.book_size)
     configured = profile.configure(base, plan)
     report = run_experiment(
-        default_strategies(configured), master_seed, configured, n_seeds=plan.n_seeds
+        default_strategies(configured),
+        master_seed,
+        configured,
+        n_seeds=plan.n_seeds,
+        progress=progress,
     )
     rescheduling, strategy = _lift_lines(report, configured)
     return SimulationResult(
@@ -230,13 +256,44 @@ def simulate(
         strategies=_strategy_lines(report, configured),
         sizing=plan.sizing,
         book_size_simulated=plan.book_size,
+        book_size_requested=plan.requested_book_size,
+        book_size_capped=plan.is_capped,
         n_seeds=plan.n_seeds,
+        estimated_seconds=plan.estimated_seconds,
         confidence_level=float(configured.value("harness.confidence_level")),
         master_seed=master_seed,
         output_hash=report.output_hash,
         retry_inherits_original_notice=bool(
             configured.value("compliance.pre_debit_notification.retry_inherits_original_notice")
         ),
+    )
+
+
+def segment_report(
+    profile: MerchantProfile,
+    master_seed: int,
+    sizing: Sizing = Sizing.INTERACTIVE,
+    assumptions: Assumptions | None = None,
+) -> SegmentReport:
+    """SPEC §12. One run, observed; the segments are cut from it rather than re-simulated.
+
+    Deliberately not derived from a cached `SimulationResult`: the segment cut needs
+    per-mandate episodes, which the aggregate counters have already discarded. Running once
+    with an observer attached is what keeps the segments and the headline consistent.
+    """
+    base = assumptions or load_assumptions()
+    plan = sizing_plan(base, sizing, profile.book_size)
+    configured = profile.configure(base, plan)
+    collector = SegmentCollector()
+    run_experiment(
+        default_strategies(configured),
+        master_seed,
+        configured,
+        n_seeds=plan.n_seeds,
+        observer=collector,
+    )
+    return build_report(
+        collector, configured, int(configured.value("book.months")), master_seed
     )
 
 
@@ -263,6 +320,7 @@ class AssumptionsView(BaseModel):
     # somewhere to hang.
     unkeyed_open_questions: tuple[str, ...]
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def estimate_count(self) -> int:
         return sum(1 for a in self.assumptions if a.confidence == "estimate")

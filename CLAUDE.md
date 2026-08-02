@@ -2,7 +2,7 @@
 
 Read `SPEC.md` once at session start. Do not re-read it unless I say the spec changed.
 
-**Current phase: 8 (complete). Next: 9 — `MLRanked`, only if 4–6 plateau.** Update this line when a phase completes.
+**Current phase: 8.5 (complete). Next: tag v0.1, then the post-v0.1 population fix (SPEC §11: ticket dispersion + caps correlated with income).** Update this line when a phase completes.
 
 ## Ground rules
 
