@@ -398,6 +398,95 @@ rail-routed strategy actually beats a single global one is untested and is logge
 §11 as a post-v0.1 question. It is not a safe assumption: routing adds a degree of freedom,
 and therefore a way to overfit.
 
+## The trace export — what actually happened, row by row
+
+If you want to know *why* a number came out the way it did, this is the tool. It exports
+one seeded book at row level: every attempt, every retry, every verdict the compliance
+guard handed down.
+
+### Start here: four rows that explain the whole rescheduling line item
+
+Same synthetic mandate, same billing cycle, two strategies side by side. The opening debit
+failed on a Saturday, so T+1 lands on a Sunday — and eNACH does not clear at weekends:
+
+```
+strategy       att  retry  scheduled     verdict         from -> to              outcome
+FixedSchedule   1   False  2026-11-07    not_reviewed                            FAILURE (BANK_UNAVAILABLE)
+FixedSchedule   2   True   2026-11-09    rescheduled     11-08 -> 11-09          SUCCESS
+NoReschedule    1   False  2026-11-07    not_reviewed                            FAILURE (BANK_UNAVAILABLE)
+NoReschedule   —    True   2026-11-08    blocked         presentation_window     —
+```
+
+Identical mandate. Identical failure. The only difference is what happens when a
+compliance rule refuses the retry:
+
+- **`FixedSchedule`** moves it to Monday the 9th and **collects ₹499**.
+- **`NoReschedule`** abandons the cycle and **collects nothing**.
+
+That is the rescheduling line item, in four rows. No reason codes were consulted, no
+prediction was made, no model was involved — a scheduler simply declined to give up when
+the calendar got in the way. It is also why the headline is never a single number: the gap
+between those two rows is not intelligence, and quoting it as such would be a lie you could
+be caught in with this export.
+
+Note the blocked row has **no attempt number**. It never became an attempt; numbering it
+would claim a debit was made that never was.
+
+### Getting it
+
+```bash
+# JSON, structured
+curl "http://localhost:8000/trace?seed=20260801&book_size=200" > trace.json
+
+# CSV, one row per attempt
+curl "http://localhost:8000/trace?seed=20260801&format=csv&table=attempts" > attempts.csv
+
+# CSV, the mandate attributes, joined on sim_id
+curl "http://localhost:8000/trace?seed=20260801&format=csv&table=mandates" > mandates.csv
+```
+
+Two CSVs, one join key. `attempts.csv` is long format — one row per attempt, every column
+you need to filter on already present. `mandates.csv` carries the generated attributes
+(rail, cap, bank, income band, salary day, billing day) once per mandate instead of
+repeating them on every row.
+
+### It is a trace, not a to-do list
+
+Every id is prefixed `SIM-` (`SIM-000005`), and seed plus output hash repeat on **every
+row**, so a row pasted into a ticket can always be traced back — and can never be mistaken
+for a production identifier. Every file opens with a header block stating in plain words
+that these mandates are synthetic and will not exist on any other run.
+
+**There is no "recommended action" column, and there never will be.** A test fails if
+anyone adds one. What each strategy *did* is a fact about a run. What you *should* do
+generalises across books and belongs elsewhere. Advice sitting next to a customer id — even
+a fake one — is something people work.
+
+### One seed. Always.
+
+`?seed=1&seed=2` is refused with a 422, and so is `?seed=1,2`. A mandate id means nothing
+across seeds: `SIM-00247` in one run and `SIM-00247` in another are unrelated customers, and
+a merged export would imply a continuity that does not exist.
+
+This is not merely validated — `build_trace` takes a single integer and there is no
+argument shape that could express a multi-seed request.
+
+### It reconciles, and that is tested
+
+Per strategy, the ₹ recovered summed across every mandate in the trace equals the headline
+figure for that seed, exactly. On a 200-mandate, 12-month run:
+
+```
+NoReschedule    trace Rs 50,898    headline Rs 50,898
+FixedSchedule   trace Rs 53,892    headline Rs 53,892
+Blended         trace Rs 59,381    headline Rs 59,381
+```
+
+Also asserted: every reschedule in the guard's log appears in the trace with matching
+from/to times, and no attempt lacks a verdict. If the trace and the headline ever disagree,
+one of them is wrong — and a debugging tool that lies about the thing you are debugging is
+worse than no tool at all.
+
 ## The assumptions section
 
 The entire config file, always visible, never behind a click, with a source and a
@@ -523,12 +612,14 @@ Be direct about these. They are what a competent CFO will ask.
 | Change what's simulated | `config/assumptions.yaml` — every number lives here, none in code |
 | Re-measure the failure-mix presets | `python notebooks/phase8_presets.py 12` |
 | Print the segment report | `python notebooks/phase85_segments.py 400 8` |
+| Row-level trace of one seed | `GET /trace?seed=N` (JSON) or `&format=csv&table=attempts` |
 | Check nothing broke | `pytest -q` |
 | API docs | http://localhost:8000/docs |
 | Price a run without running it | `POST /simulate/estimate` |
 | Start a run / poll it | `POST /simulate/jobs` → `GET /simulate/jobs/{id}` |
 | Run synchronously (small books only) | `POST /simulate` |
 | Per-segment breakdown | `GET /segments` |
+| Row-level trace, one seed only | `GET /trace?seed=N` |
 | The rest | `GET /assumptions`, `GET /strategies` |
 
 Jobs live in the API process's memory and are lost on restart. That is not an oversight —

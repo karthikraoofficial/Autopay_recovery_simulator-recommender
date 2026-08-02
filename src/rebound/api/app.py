@@ -7,8 +7,9 @@ interactive runs are made cheap instead (fewer seeds, wider intervals, both repo
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from rebound.api.inputs import (
@@ -30,6 +31,7 @@ from rebound.api.service import (
 )
 from rebound.config import load_assumptions
 from rebound.harness.segments import SegmentReport
+from rebound.harness.trace import MultipleSeedsError, Table, Trace, build_trace, to_csv
 
 # The Vite dev server. A simulator that runs locally and talks to nothing else does not
 # need a configurable origin list, and SPEC §7 says no cloud until a merchant asks.
@@ -132,6 +134,50 @@ def create_app() -> FastAPI:
             return segment_report(profile, master_seed, sizing)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # response_model=None because this route returns either a Trace or a CSV response,
+    # and FastAPI cannot build one response model from that union.
+    @app.get("/trace", response_model=None)
+    def get_trace(
+        request: Request,
+        seed: int = Query(description="Exactly one seed. A trace never spans seeds."),
+        table: Table = Table.ATTEMPTS,
+        fmt: str = Query(default="json", pattern="^(json|csv)$", alias="format"),
+        book_size: int = Query(default=200, gt=0, le=2000),
+    ) -> Trace | PlainTextResponse:
+        """SPEC §13. Row-level trace of one seeded book, for inspection and debugging.
+
+        `seed` is a single int by signature, so a comma-joined value fails to parse. A
+        *repeated* parameter does not: FastAPI silently binds the last one, which would
+        answer `?seed=1&seed=2` with seed 2's trace and no indication the request was not
+        honoured. That is the quiet merge SPEC §13.1 forbids, so it is refused explicitly.
+        """
+        supplied = request.query_params.getlist("seed")
+        if len(supplied) != 1:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"a trace covers exactly one seed; {len(supplied)} were given "
+                    f"({', '.join(supplied) or 'none'}). A mandate id means nothing "
+                    "across seeds, so a merged export would imply a continuity that does "
+                    "not exist. Request one trace per seed."
+                ),
+            )
+        try:
+            trace = build_trace(seed, book_size=book_size)
+        except (MultipleSeedsError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if fmt == "csv":
+            return PlainTextResponse(
+                to_csv(trace, table),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="rebound-trace-{table.value}-seed{seed}.csv"'
+                    )
+                },
+            )
+        return trace
 
     @app.get("/assumptions", response_model=AssumptionsView)
     def get_assumptions() -> AssumptionsView:

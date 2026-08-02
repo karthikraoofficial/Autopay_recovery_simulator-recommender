@@ -9,7 +9,12 @@ from typing import Protocol
 
 from pydantic import ConfigDict, Field
 
-from rebound.compliance.guard import ComplianceGuard, RetryContext
+from rebound.compliance.guard import (
+    ComplianceBlock,
+    ComplianceGuard,
+    ComplianceReschedule,
+    RetryContext,
+)
 from rebound.config import Assumptions, load_assumptions
 from rebound.domain.entities import (
     AttemptOutcome,
@@ -68,6 +73,23 @@ class RunObserver(Protocol):
     def saw_episode(
         self, strategy: str, seed: int, mandate: Mandate, episode: RecoveryEpisode
     ) -> None: ...
+
+    def saw_cycle_guard_events(
+        self,
+        strategy: str,
+        seed: int,
+        mandate: Mandate,
+        cycle_index: int,
+        blocks: tuple[ComplianceBlock, ...],
+        reschedules: tuple[ComplianceReschedule, ...],
+    ) -> None:
+        """The guard's verdicts for one billing cycle, sliced as that cycle runs.
+
+        Handed over per cycle rather than joined afterwards on (mandate_id, time). The
+        guard is constructed per strategy run and its log is append-only, so slicing it at
+        the cycle boundary attributes every verdict exactly. A post-hoc join would have to
+        guess which cycle a block belonged to and could silently drop rows.
+        """
 
 
 class SeedResult(DomainModel):
@@ -387,6 +409,9 @@ def _run_strategy(
         for cycle_index in range(book.months):
             if not mandate.is_debitable:
                 break
+            # Marks into the guard's append-only log, so this cycle's verdicts can be
+            # sliced out exactly rather than matched back to it later.
+            seen_blocks, seen_reschedules = len(guard.blocks), len(guard.reschedules)
             episode, induced, stopped = _run_cycle(
                 strategy, engine, run, cycle_index, amount, max_attempts, guard, notice_lead
             )
@@ -396,6 +421,14 @@ def _run_strategy(
                 episodes.append(episode)
                 if observer is not None:
                     observer.saw_episode(strategy.name, seed, mandate, episode)
+                    observer.saw_cycle_guard_events(
+                        strategy.name,
+                        seed,
+                        mandate,
+                        cycle_index,
+                        tuple(guard.blocks[seen_blocks:]),
+                        tuple(guard.reschedules[seen_reschedules:]),
+                    )
     return summarise(
         strategy.name,
         episodes,
