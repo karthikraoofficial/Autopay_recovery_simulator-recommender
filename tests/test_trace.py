@@ -317,3 +317,137 @@ def test_the_guard_is_the_same_one_the_run_used(tiny: Assumptions) -> None:
         if any(e.outcome is EpisodeOutcome.RECOVERED for e in episodes)
     }
     assert recovered, "expected some recoveries to trace"
+
+
+# --- the merchant profile must reach the trace --------------------------------
+
+
+def _profile_config(shipped: Assumptions, **overrides) -> Assumptions:
+    from rebound.api.inputs import MerchantProfile
+
+    profile = MerchantProfile(
+        book_size=40,
+        avg_ticket_inr=overrides.pop("avg_ticket_inr", 499.0),
+        upi_autopay_share=overrides.pop("upi_autopay_share", 0.55),
+        enach_share=overrides.pop("enach_share", 0.30),
+        performance_fee_rate=0.15,
+        **overrides,
+    )
+    base = shipped.with_values({"book.months": 4})
+    return base.with_values(profile.overrides(base))
+
+
+def test_a_non_default_ticket_reaches_every_row_of_the_trace(shipped: Assumptions) -> None:
+    """The bug. /trace built its run from load_assumptions() and only overrode book.size,
+    so a run at avg_ticket 2400 produced a trace where every mandate showed 499 — the
+    shipped default. Same seed, so the same SIM- ids, so nothing looked wrong."""
+    trace = build_trace(20260801, _profile_config(shipped, avg_ticket_inr=2400.0), book_size=40)
+    tickets = {m.ticket_inr for m in trace.mandates}
+    assert tickets == {2400.0}, f"expected the submitted ticket in every row, got {tickets}"
+    assert all(a.amount_inr == 2400.0 for a in trace.attempts)
+
+
+def test_mandate_caps_scale_with_the_submitted_ticket(shipped: Assumptions) -> None:
+    """Caps derive from the drawn ticket, so a trace generated at the wrong ticket has
+    caps of the right *shape* and the wrong *scale* — which is how the defect stayed
+    invisible. The ratio is the invariant; the rupee range is not."""
+    small = build_trace(20260801, _profile_config(shipped, avg_ticket_inr=499.0), book_size=40)
+    large = build_trace(20260801, _profile_config(shipped, avg_ticket_inr=2400.0), book_size=40)
+
+    def ratios(trace):
+        return sorted(m.mandate_cap_inr / m.ticket_inr for m in trace.mandates)
+
+    # Same seed and same draws, so the cap/ticket ratios match. Not exactly: caps are
+    # stored as integer paise, so truncation lands differently at the two scales. The
+    # tolerance is for that rounding and nothing else — a dropped profile shows up as a
+    # ~4.8x discrepancy here, not a sixth-decimal one.
+    assert ratios(small) == pytest.approx(ratios(large), rel=1e-4)
+    # ...while the rupee caps have moved with the ticket. Before the fix these were equal.
+    assert min(m.mandate_cap_inr for m in large.mandates) > max(
+        m.mandate_cap_inr for m in small.mandates
+    )
+
+
+def test_the_rail_mix_reaches_the_trace(shipped: Assumptions) -> None:
+    """Not only the ticket: every profile field was being dropped."""
+    card_heavy = build_trace(
+        20260801,
+        _profile_config(shipped, upi_autopay_share=0.10, enach_share=0.10),
+        book_size=40,
+    )
+    upi_heavy = build_trace(
+        20260801,
+        _profile_config(shipped, upi_autopay_share=0.80, enach_share=0.10),
+        book_size=40,
+    )
+    card = sum(1 for m in card_heavy.mandates if m.rail == "CARD_EMANDATE")
+    upi = sum(1 for m in upi_heavy.mandates if m.rail == "UPI_AUTOPAY")
+    assert card > upi_heavy.mandates.__len__() // 2
+    assert upi > card_heavy.mandates.__len__() // 2
+
+
+# --- the structural guard -----------------------------------------------------
+
+
+def test_the_trace_records_the_config_it_was_generated_under(shipped: Assumptions) -> None:
+    """SPEC §13.2. Comparing output hashes cannot catch this: a single-seed trace has a
+    different hash from the multi-seed headline by construction. The *input* is what has
+    to be compared."""
+    config = _profile_config(shipped, avg_ticket_inr=2400.0)
+    trace = build_trace(20260801, config, book_size=40)
+    assert trace.header.config_fingerprint == config.with_values(
+        {"book.size": 40}
+    ).fingerprint()
+    assert f"# config_fingerprint: {trace.header.config_fingerprint}" in to_csv(trace)
+
+
+def test_two_configs_that_differ_have_different_fingerprints(shipped: Assumptions) -> None:
+    a = _profile_config(shipped, avg_ticket_inr=499.0).fingerprint()
+    b = _profile_config(shipped, avg_ticket_inr=2400.0).fingerprint()
+    assert a != b
+    assert a == _profile_config(shipped, avg_ticket_inr=499.0).fingerprint()
+
+
+def test_a_note_change_does_not_invalidate_an_export(shipped: Assumptions) -> None:
+    """Values only. Provenance text is for the reader and changes nothing the simulation
+    does, so editing a source note must not refuse every outstanding export."""
+    entries = dict(shipped.assumptions)
+    entries["book.size"] = entries["book.size"].model_copy(update={"notes": "reworded"})
+    reworded = shipped.model_copy(update={"assumptions": entries})
+    assert reworded.fingerprint() == shipped.fingerprint()
+
+
+def test_a_mismatched_config_is_refused_rather_than_exported(client: TestClient) -> None:
+    """The guard. On mismatch the export is refused outright — relying on someone noticing
+    a differing hash in a file header is exactly what let this defect ship."""
+    response = client.get(
+        "/trace",
+        params={
+            "seed": 20260801,
+            "book_size": 30,
+            "avg_ticket_inr": 2400.0,
+            "expect_config": "0" * 64,
+        },
+    )
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "different population" in detail
+    assert "Nothing is exported" in detail
+
+
+def test_a_matching_config_is_exported(client: TestClient) -> None:
+    """The guard must not refuse the good case, or it will be routed around."""
+    params = {"seed": 20260801, "book_size": 30, "avg_ticket_inr": 2400.0}
+    fingerprint = client.get("/trace", params=params).json()["header"]["config_fingerprint"]
+    ok = client.get("/trace", params={**params, "expect_config": fingerprint})
+    assert ok.status_code == 200
+    assert {m["ticket_inr"] for m in ok.json()["mandates"]} == {2400.0}
+
+
+def test_the_endpoint_applies_the_profile_end_to_end(client: TestClient) -> None:
+    """What the dashboard actually calls. Before the fix this returned 499 whatever was
+    asked for."""
+    body = client.get(
+        "/trace", params={"seed": 20260801, "book_size": 30, "avg_ticket_inr": 1750.0}
+    ).json()
+    assert {m["ticket_inr"] for m in body["mandates"]} == {1750.0}

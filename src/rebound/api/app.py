@@ -160,6 +160,22 @@ def create_app() -> FastAPI:
         table: Table = Table.ATTEMPTS,
         fmt: str = Query(default="json", pattern="^(json|csv)$", alias="format"),
         book_size: int = Query(default=200, gt=0, le=2000),
+        # The same six merchant inputs /segments takes. Without them the trace is
+        # generated from the shipped defaults and describes a different population from
+        # the run it is meant to explain -- invisibly, because the seed fixes the mandate
+        # ids whatever the config.
+        avg_ticket_inr: float = 499.0,
+        upi_autopay_share: float = 0.55,
+        enach_share: float = 0.30,
+        failure_mix: FailureMix = FailureMix.CURRENT,
+        performance_fee_rate: float = 0.15,
+        expect_config: str | None = Query(
+            default=None,
+            description=(
+                "Config fingerprint of the run this trace should match. Supplied by the "
+                "dashboard; a mismatch is refused rather than exported."
+            ),
+        ),
     ) -> Trace | PlainTextResponse:
         """SPEC §13. Row-level trace of one seeded book, for inspection and debugging.
 
@@ -180,9 +196,34 @@ def create_app() -> FastAPI:
                 ),
             )
         try:
-            trace = build_trace(seed, book_size=book_size)
+            profile = MerchantProfile(
+                book_size=book_size,
+                avg_ticket_inr=avg_ticket_inr,
+                upi_autopay_share=upi_autopay_share,
+                enach_share=enach_share,
+                failure_mix=failure_mix,
+                performance_fee_rate=performance_fee_rate,
+            )
+            base = load_assumptions()
+            configured = base.with_values(profile.overrides(base))
+            trace = build_trace(seed, configured, book_size=book_size)
         except (MultipleSeedsError, KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Structural check, not a warning. A trace of the wrong population is invisible:
+        # the seed fixes the mandate ids, so only the config distinguishes them. Refusing
+        # is the only response that cannot be missed.
+        if expect_config is not None and expect_config != trace.header.config_fingerprint:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "this trace would describe a different population from the run it is "
+                    f"meant to explain. Expected config {expect_config[:12]}, this trace "
+                    f"is {trace.header.config_fingerprint[:12]}. Nothing is exported. "
+                    "Re-run the simulation and download the trace again; if assumptions."
+                    "yaml changed in between, the earlier result no longer describes this "
+                    "configuration either."
+                ),
+            )
         if fmt == "csv":
             return PlainTextResponse(
                 to_csv(trace, table),

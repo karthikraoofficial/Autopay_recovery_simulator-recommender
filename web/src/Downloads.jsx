@@ -112,6 +112,15 @@ export default function Downloads({ result, profile }) {
           table,
           format: "csv",
           book_size: String(result.book_size_simulated),
+          // The same six inputs the run used. Without them /trace generates from the
+          // shipped defaults and traces a different population than the result above.
+          avg_ticket_inr: String(profile.avg_ticket_inr),
+          upi_autopay_share: String(profile.upi_autopay_share),
+          enach_share: String(profile.enach_share),
+          failure_mix: profile.failure_mix,
+          performance_fee_rate: String(profile.performance_fee_rate),
+          // Refused server-side if it does not match what the trace was built under.
+          expect_config: result.config_fingerprint,
         })}`
       );
       save(

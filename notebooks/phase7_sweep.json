@@ -1,0 +1,621 @@
+{
+  "base": {
+    "clamped": false,
+    "factor": 1.0,
+    "key": "<unswept>",
+    "lift_high": 466565.0,
+    "lift_low": 100735.625,
+    "lift_point": 286301.25,
+    "metric": "net_recovered_paise"
+  },
+  "book_size": 400,
+  "clamped_keys": [
+    "strategy.blended.weight_reason",
+    "strategy.blended.weight_salary"
+  ],
+  "master_seed": 20260801,
+  "metric": "net_recovered_paise",
+  "months": 12,
+  "n_seeds": 24,
+  "results": [
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "population.balance.spend_decay_rate.low",
+        "lift_high": 1380074.3354166667,
+        "lift_low": 812777.8875,
+        "lift_point": 1093861.0,
+        "metric": "net_recovered_paise"
+      },
+      "key": "population.balance.spend_decay_rate.low",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "population.balance.spend_decay_rate.low",
+        "lift_high": 121943.125,
+        "lift_low": -28276.666666666668,
+        "lift_point": 49484.166666666664,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "population.balance.cushion_lognormal_sigma",
+        "lift_high": 641488.5708333333,
+        "lift_low": 160696.87291666662,
+        "lift_point": 390558.25,
+        "metric": "net_recovered_paise"
+      },
+      "key": "population.balance.cushion_lognormal_sigma",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "population.balance.cushion_lognormal_sigma",
+        "lift_high": 107804.79166666667,
+        "lift_low": -26509.375,
+        "lift_point": 42415.0,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "compliance.reschedule_horizon_days",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "key": "compliance.reschedule_horizon_days",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "compliance.reschedule_horizon_days",
+        "lift_high": 318200.86458333326,
+        "lift_low": -44270.656250000044,
+        "lift_point": 137848.75,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "book.avg_ticket_paise",
+        "lift_high": 1139903.125,
+        "lift_low": 564516.8395833332,
+        "lift_point": 842998.0833333334,
+        "metric": "net_recovered_paise"
+      },
+      "key": "book.avg_ticket_paise",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "book.avg_ticket_paise",
+        "lift_high": 103386.58541666667,
+        "lift_low": 4418.25,
+        "lift_point": 54786.083333333336,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "strategy.reason_aware.insufficient_funds_delay_days",
+        "lift_high": 560231.4583333334,
+        "lift_low": 275697.5,
+        "lift_point": 418848.125,
+        "metric": "net_recovered_paise"
+      },
+      "key": "strategy.reason_aware.insufficient_funds_delay_days",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "strategy.reason_aware.insufficient_funds_delay_days",
+        "lift_high": 316345.2083333333,
+        "lift_low": 33578.541666666664,
+        "lift_point": 173194.58333333334,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "engine.reaction.topup_probability_notified",
+        "lift_high": 298672.2916666667,
+        "lift_low": 42415.0,
+        "lift_point": 171427.29166666666,
+        "metric": "net_recovered_paise"
+      },
+      "key": "engine.reaction.topup_probability_notified",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "engine.reaction.topup_probability_notified",
+        "lift_high": 489539.7916666667,
+        "lift_low": 22974.791666666668,
+        "lift_point": 259791.875,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "population.balance.spend_decay_rate.mid",
+        "lift_high": 546181.4895833333,
+        "lift_low": 183709.96874999997,
+        "lift_point": 369363.9583333333,
+        "metric": "net_recovered_paise"
+      },
+      "key": "population.balance.spend_decay_rate.mid",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "population.balance.spend_decay_rate.mid",
+        "lift_high": 438376.69791666657,
+        "lift_low": 123622.0520833333,
+        "lift_point": 282766.6666666667,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "engine.reaction.revocation_attempt_exponent",
+        "lift_high": 530187.5,
+        "lift_low": 160823.54166666666,
+        "lift_point": 349923.75,
+        "metric": "net_recovered_paise"
+      },
+      "key": "engine.reaction.revocation_attempt_exponent",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "engine.reaction.revocation_attempt_exponent",
+        "lift_high": 434753.75,
+        "lift_low": 129012.29166666667,
+        "lift_point": 284533.9583333333,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "engine.reaction.revocation_base_hazard",
+        "lift_high": 524885.625,
+        "lift_low": 153754.375,
+        "lift_point": 341087.2916666667,
+        "metric": "net_recovered_paise"
+      },
+      "key": "engine.reaction.revocation_base_hazard",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "engine.reaction.revocation_base_hazard",
+        "lift_high": 394106.0416666667,
+        "lift_low": 150131.42708333328,
+        "lift_point": 272162.9166666667,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "strategy.blended.weight_bank",
+        "lift_high": 509068.36458333326,
+        "lift_low": 166037.05208333328,
+        "lift_point": 341087.2916666667,
+        "metric": "net_recovered_paise"
+      },
+      "key": "strategy.blended.weight_bank",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "strategy.blended.weight_bank",
+        "lift_high": 468332.2916666667,
+        "lift_low": 136081.45833333334,
+        "lift_point": 307508.75,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "population.bank.td_rate_max",
+        "lift_high": 491395.44791666657,
+        "lift_low": 155521.66666666666,
+        "lift_point": 328716.25,
+        "metric": "net_recovered_paise"
+      },
+      "key": "population.bank.td_rate_max",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "population.bank.td_rate_max",
+        "lift_high": 434842.11458333326,
+        "lift_low": 121943.125,
+        "lift_point": 279232.0833333333,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": true,
+        "factor": 1.5,
+        "key": "strategy.blended.weight_reason",
+        "lift_high": 486005.2083333333,
+        "lift_low": 167892.70833333334,
+        "lift_point": 326948.9583333333,
+        "metric": "net_recovered_paise"
+      },
+      "key": "strategy.blended.weight_reason",
+      "low": {
+        "clamped": true,
+        "factor": 0.5,
+        "key": "strategy.blended.weight_reason",
+        "lift_high": 452426.6666666667,
+        "lift_low": 109572.08333333333,
+        "lift_point": 280999.375,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "population.mandate.rail_mix.upi_autopay",
+        "lift_high": 440055.625,
+        "lift_low": 143062.26041666663,
+        "lift_point": 289835.8333333333,
+        "metric": "net_recovered_paise"
+      },
+      "key": "population.mandate.rail_mix.upi_autopay",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "population.mandate.rail_mix.upi_autopay",
+        "lift_high": 461351.48958333326,
+        "lift_low": 182031.04166666666,
+        "lift_point": 316345.2083333333,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "engine.rail_technical_multiplier.enach",
+        "lift_high": 473634.1666666667,
+        "lift_low": 107804.79166666667,
+        "lift_point": 291603.125,
+        "metric": "net_recovered_paise"
+      },
+      "key": "engine.rail_technical_multiplier.enach",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "engine.rail_technical_multiplier.enach",
+        "lift_high": 468332.2916666667,
+        "lift_low": 137760.38541666663,
+        "lift_point": 303974.1666666667,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": false,
+        "factor": 1.5,
+        "key": "engine.rail_technical_multiplier.upi_autopay",
+        "lift_high": 480791.69791666657,
+        "lift_low": 121854.76041666663,
+        "lift_point": 303974.1666666667,
+        "metric": "net_recovered_paise"
+      },
+      "key": "engine.rail_technical_multiplier.upi_autopay",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "engine.rail_technical_multiplier.upi_autopay",
+        "lift_high": 427684.5833333333,
+        "lift_low": 118408.54166666667,
+        "lift_point": 277464.7916666667,
+        "metric": "net_recovered_paise"
+      }
+    },
+    {
+      "base": {
+        "clamped": false,
+        "factor": 1.0,
+        "key": "<unswept>",
+        "lift_high": 466565.0,
+        "lift_low": 100735.625,
+        "lift_point": 286301.25,
+        "metric": "net_recovered_paise"
+      },
+      "high": {
+        "clamped": true,
+        "factor": 1.5,
+        "key": "strategy.blended.weight_salary",
+        "lift_high": 459584.19791666657,
+        "lift_low": 111339.375,
+        "lift_point": 288068.5416666667,
+        "metric": "net_recovered_paise"
+      },
+      "key": "strategy.blended.weight_salary",
+      "low": {
+        "clamped": false,
+        "factor": 0.5,
+        "key": "strategy.blended.weight_salary",
+        "lift_high": 447124.7916666667,
+        "lift_low": 88364.58333333333,
+        "lift_point": 268628.3333333333,
+        "metric": "net_recovered_paise"
+      }
+    }
+  ],
+  "subject": "Blended",
+  "swept_keys": [
+    "population.balance.cushion_lognormal_sigma",
+    "population.balance.spend_decay_rate.low",
+    "population.balance.spend_decay_rate.mid",
+    "population.bank.td_rate_max",
+    "engine.rail_technical_multiplier.upi_autopay",
+    "engine.rail_technical_multiplier.enach",
+    "population.mandate.rail_mix.upi_autopay",
+    "engine.reaction.revocation_base_hazard",
+    "engine.reaction.revocation_attempt_exponent",
+    "engine.reaction.topup_probability_notified",
+    "strategy.blended.weight_reason",
+    "strategy.blended.weight_salary",
+    "strategy.blended.weight_bank",
+    "strategy.reason_aware.insufficient_funds_delay_days",
+    "compliance.reschedule_horizon_days",
+    "book.avg_ticket_paise"
+  ],
+  "untested_keys": [
+    "api.interactive_book_size",
+    "api.interactive_seeds",
+    "api.publication_book_size_cap",
+    "api.seconds_per_mandate_seed",
+    "compliance.max_retries_per_cycle.card_emandate",
+    "compliance.max_retries_per_cycle.enach",
+    "compliance.max_retries_per_cycle.upi_autopay",
+    "compliance.pre_debit_notification.lead_hours",
+    "engine.account_frozen_hazard_per_month",
+    "engine.daily_limit_consumption_lognormal_sigma",
+    "engine.daily_limit_consumption_share_mean",
+    "engine.daily_limit_paise.card_emandate",
+    "engine.daily_limit_paise.enach",
+    "engine.daily_limit_paise.upi_autopay",
+    "engine.mandate_expiry_hazard_per_cycle",
+    "engine.rail_technical_multiplier.card_emandate",
+    "engine.reaction.intent_decay_per_failed_attempt",
+    "engine.reaction.revocation_intent_weight",
+    "engine.reaction.topup_probability_not_notified",
+    "harness.max_attempts_per_cycle",
+    "harness.performance_fee_rate",
+    "population.balance.carryover_fraction_mean",
+    "population.balance.carryover_lognormal_sigma",
+    "population.balance.daily_lognormal_sigma.high",
+    "population.balance.daily_lognormal_sigma.low",
+    "population.balance.daily_lognormal_sigma.mid",
+    "population.balance.first_week_days",
+    "population.balance.first_week_spend_multiplier",
+    "population.balance.salary_jitter_max_days",
+    "population.balance.spend_decay_rate.high",
+    "population.bank.batch_cutoff_hour",
+    "population.bank.count",
+    "population.bank.downtime_window_daily_share",
+    "population.bank.downtime_window_earliest_hour",
+    "population.bank.downtime_window_hours",
+    "population.bank.downtime_window_latest_hour",
+    "population.bank.downtime_windows_max",
+    "population.bank.downtime_windows_mean",
+    "population.bank.return_charge_paise",
+    "population.bank.share_concentration",
+    "population.bank.td_rate_min",
+    "population.bank.unavailability_factor_max",
+    "population.bank.unavailability_factor_min",
+    "population.bank.uptime_daytime",
+    "population.bank.uptime_night_trough",
+    "population.bank.uptime_trough_hour",
+    "population.customer.band_share.high",
+    "population.customer.band_share.low",
+    "population.customer.band_share.mid",
+    "population.customer.has_alt_rail_share",
+    "population.customer.income_lognormal_sigma",
+    "population.customer.income_median_paise.high",
+    "population.customer.income_median_paise.low",
+    "population.customer.income_median_paise.mid",
+    "population.customer.intent_score_concentration",
+    "population.customer.intent_score_mean",
+    "population.customer.salary_day.month_end_share",
+    "population.customer.salary_day.month_start_max",
+    "population.customer.salary_day.month_start_min",
+    "population.customer.upi_app_share.app_a",
+    "population.customer.upi_app_share.app_b",
+    "population.customer.upi_app_share.app_c",
+    "population.customer.upi_app_share.app_d",
+    "population.mandate.billing_day_max",
+    "population.mandate.cap_multiple_of_ticket",
+    "population.mandate.max_age_months",
+    "population.mandate.rail_mix.card_emandate",
+    "population.mandate.rail_mix.enach",
+    "population.mandate.ticket_lognormal_sigma",
+    "preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma",
+    "preset.failure_mix.insufficient_funds_dominant.td_rate_max",
+    "preset.failure_mix.technical_dominant.cushion_lognormal_sigma",
+    "preset.failure_mix.technical_dominant.td_rate_max",
+    "preset.failure_mix.technical_dominant.td_rate_min",
+    "rail.card_emandate.mandate_cap_inr",
+    "rail.enach.mandate_cap_inr",
+    "rail.upi_autopay.mandate_cap_default_inr",
+    "segment.bootstrap_resamples",
+    "segment.min_episodes",
+    "strategy.bank_aware.earliest_hour",
+    "strategy.bank_aware.latest_hour",
+    "strategy.bank_aware.max_retries",
+    "strategy.bank_aware.prior_attempts",
+    "strategy.bank_aware.prior_success_rate",
+    "strategy.blended.max_retries",
+    "strategy.reason_aware.bank_unavailable_delay_hours",
+    "strategy.reason_aware.invalid_pin_delay_days",
+    "strategy.reason_aware.limit_exceeded_delay_days",
+    "strategy.reason_aware.max_retries",
+    "strategy.reason_aware.technical_decline_delay_hours",
+    "strategy.salary_aware.max_retries",
+    "strategy.salary_aware.max_wait_days",
+    "strategy.salary_aware.min_log_likelihood_margin",
+    "strategy.salary_aware.min_observations",
+    "strategy.salary_aware.success_decay_per_day",
+    "strategy.salary_aware.success_floor_probability",
+    "strategy.salary_aware.success_peak_probability",
+    "strategy.salary_aware.target_window_days"
+  ]
+}

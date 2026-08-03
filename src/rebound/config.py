@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,25 @@ class Assumptions(BaseModel):
             return self.assumptions[key].value
         except KeyError:
             raise KeyError(f"no assumption {key!r} in assumptions.yaml") from None
+
+    def fingerprint(self) -> str:
+        """A digest of every assumption value, for comparing two runs' configurations.
+
+        Exists because a mismatch between the headline run and a derived export is silent
+        by nature: the same seed produces the same mandate ids whatever the config, so a
+        trace generated under different assumptions looks entirely plausible. Comparing
+        output hashes does not help — a single-seed trace has a different hash by
+        construction — so the *input* has to be compared instead.
+
+        Values only. Sources and notes are provenance for the reader and do not change
+        what the simulation does, so editing a note must not invalidate an export.
+        """
+        canonical = json.dumps(
+            {key: entry.value for key, entry in sorted(self.assumptions.items())},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def with_values(self, values: dict[str, Any]) -> Assumptions:
         """A copy with some values replaced, keeping each entry's source and confidence.

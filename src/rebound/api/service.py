@@ -120,6 +120,9 @@ class SimulationResult(BaseModel):
     # offer one that was in this run. Derived client-side it would drift, and /trace
     # would answer with a valid trace of a population the headline never saw.
     seeds: tuple[int, ...] = Field(min_length=1)
+    # The configuration this result was produced under. A derived export (trace,
+    # segment report) must match it, and the export is refused if it does not.
+    config_fingerprint: str = Field(min_length=1)
     output_hash: str
     retry_inherits_original_notice: bool
 
@@ -267,6 +270,7 @@ def simulate(
         confidence_level=float(configured.value("harness.confidence_level")),
         master_seed=master_seed,
         seeds=report.seeds,
+        config_fingerprint=configured.fingerprint(),
         output_hash=report.output_hash,
         retry_inherits_original_notice=bool(
             configured.value("compliance.pre_debit_notification.retry_inherits_original_notice")

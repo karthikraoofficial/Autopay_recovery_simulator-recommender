@@ -74,6 +74,10 @@ class TraceHeader(DomainModel):
 
     seed: int
     output_hash: str = Field(min_length=1)
+    # The configuration this trace was generated under. Recorded so a file can be checked
+    # against the run it is supposed to explain: the same seed yields the same mandate ids
+    # whatever the config, so a trace of the wrong population is invisible without this.
+    config_fingerprint: str = Field(min_length=1)
     # The only non-deterministic field in the export, and it is provenance rather than
     # result: it never enters the output hash and nothing reconciles against it.
     exported_at: datetime
@@ -342,11 +346,15 @@ def build_trace(
     strategies = default_strategies(assumptions)
     collector = TraceCollector()
     report = run_paired(book, strategies, seed, assumptions, observer=collector)
-    return _assemble(collector, book, report, seed)
+    return _assemble(collector, book, report, seed, assumptions.fingerprint())
 
 
 def _assemble(
-    collector: TraceCollector, book: Book, report: HarnessReport, seed: int
+    collector: TraceCollector,
+    book: Book,
+    report: HarnessReport,
+    seed: int,
+    fingerprint: str,
 ) -> Trace:
     customers = {c.id: c for c in book.customers}
     banks = {b.id: b for b in book.banks}
@@ -372,6 +380,7 @@ def _assemble(
         header=TraceHeader(
             seed=seed,
             output_hash=output_hash,
+            config_fingerprint=fingerprint,
             exported_at=datetime.now(UTC),
             strategies=tuple(names),
             months=book.months,
@@ -399,6 +408,7 @@ def _header_lines(header: TraceHeader, table: Table) -> list[str]:
         f"# rebound trace - {table.value}",
         f"# seed: {header.seed}",
         f"# output_hash: {header.output_hash}",
+        f"# config_fingerprint: {header.config_fingerprint}",
         f"# exported_at: {header.exported_at.isoformat()}",
         f"# strategies: {', '.join(header.strategies)}",
         f"# book_size: {header.book_size} mandates over {header.months} months",
