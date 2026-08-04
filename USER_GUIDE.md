@@ -516,6 +516,114 @@ from/to times, and no attempt lacks a verdict. If the trace and the headline eve
 one of them is wrong — and a debugging tool that lies about the thing you are debugging is
 worse than no tool at all.
 
+## The recommendation service — a real failure, a recommended time
+
+Everything above is a simulation of a book. `POST /recommend` is the other direction: you
+send **one failure that actually happened** and get back a time to retry it, the rule that
+produced that time, and the lift measured in the segment that failure belongs to.
+
+It runs no simulation. It is the same strategy classes, driven by your fields instead of
+generated ones.
+
+```bash
+curl -s localhost:8000/recommend -H 'content-type: application/json' -d '{
+  "mandate_ref": "your-own-id",
+  "rail": "UPI_AUTOPAY",
+  "reason_code": "TECHNICAL_DECLINE",
+  "failed_at": "2026-03-10T11:00:00+00:00",
+  "amount_paise": 49900,
+  "mandate_cap_paise": 150000,
+  "attempt_number": 1,
+  "notified_at": "2026-03-08T11:00:00+00:00",
+  "prior_failure_count": 0
+}'
+```
+
+### It recommends a time. It does not predict an outcome.
+
+There is no success probability in the response and there is no field to put one in. Inside
+the simulator P(success) is knowable because the model generated the answer; out here
+nothing in this project has ever seen a real payment succeed. A number like that would be
+invented, and it would be the first thing quoted back at you.
+
+### Two tiers of input, and it tells you which one you sent
+
+The **minimum set** is the nine fields above (plus `original_attempt_at` once
+`attempt_number` is 2 or more, and `bank_batch_cutoff_time` on eNACH). It serves
+`FixedSchedule` and `ReasonAware`.
+
+The **extended set** adds `bank_id` and `attempt_history` — this cycle's attempts with
+their times, amounts, outcomes and reason codes. It additionally serves `BankAware`,
+`SalaryAware` and `Blended`.
+
+A minimum-set request is answered, not rejected. The `availability` block names every
+strategy that could not run and the field that would unlock it, and `selection_notes` says
+when the *measured winner* for your segment was one of them:
+
+```
+BankAware is the measured winner in the rail segment 'ENACH' and cannot be run on
+this input. Supplying bank_id, attempt_history would unlock it.
+```
+
+That is deliberate. A quiet downgrade to the baseline would read as "the system recommends
+what you already do", which is a different and false claim.
+
+### A missing field is refused by name, never defaulted
+
+`notified_at` is the clearest case. Under the shipped reading a retry inherits the original
+charge's notice — but only if there was one. Defaulting the field would launder an
+un-notified debit into a compliant-looking retry, so an absent one is refused instead.
+
+Where a field is required and absent, the response is a 422 that names it. Where an
+*extended* field is absent, you get an answer plus the availability note above.
+
+### The guard applies here, harder than it does in the simulator
+
+Every recommendation passes the compliance guard before it is returned. A simulated illegal
+retry costs a wrong number; a recommended illegal retry gets executed against a real
+customer.
+
+- A **hard decline** returns no time at all — and no lift figure beside it.
+- A **rescheduled** proposal returns the moved time, with the rule that moved it and the
+  original in `compliance.moved_from`. The original is never returned in its place.
+- A **blocked** proposal returns no time, with the blocking rule and its `assumptions.yaml`
+  key so you can read the rule we applied.
+
+### What the quoted lift is, and is not
+
+It is the lift measured for a **segment** — your failure's reason code, rail or
+failure-frequency band — from the phase 8.5 segment report. It is **not** the effect of the
+rule that produced your time: no experiment in this project isolates one branch of one
+strategy, so the response names both the rule and the segment and does not conflate them.
+
+Where nothing won, it says so in words: *no strategy beats FixedSchedule here.*
+
+Three caveats travel in every response rather than living in this guide, because the
+response is what gets forwarded: it is a simulated book, the balance process it rests on is
+the least grounded part of the model, and `Blended`'s weights have no corrected sensitivity
+sweep. **Mandate cap is accepted for the amount check and is never segmented on** — SPEC
+§12.5 keeps that axis empty on purpose, as an instrument for catching a broken significance
+procedure.
+
+If `assumptions.yaml` changes, the recorded measurement no longer describes the rules being
+applied, and the service returns 503 until the evidence is regenerated with
+`python notebooks/phase85_segments.py 400 8`. That is the same fail-closed rule the segment
+and trace exports use.
+
+### A CSV of failures
+
+```bash
+curl -s "localhost:8000/recommend/template" -o failures.csv   # or ?extended=true
+# fill it in, then:
+curl -s localhost:8000/recommend/batch --data-binary @failures.csv
+```
+
+One answer per row. A bad row is refused on its own and the good rows still answer;
+`refusals_by_field` counts them by column, ahead of the rows, so a partial refusal is not
+something you discover on line 4,000.
+
+---
+
 ## The assumptions section
 
 The entire config file, always visible, never behind a click, with a source and a
@@ -649,6 +757,8 @@ Be direct about these. They are what a competent CFO will ask.
 | Start a run / poll it | `POST /simulate/jobs` → `GET /simulate/jobs/{id}` |
 | Run synchronously (small books only) | `POST /simulate` |
 | Per-segment breakdown | `GET /segments` |
+| Recommend a retry for one real failure | `POST /recommend` |
+| The same for a CSV of failures | `GET /recommend/template` → `POST /recommend/batch` |
 | Row-level trace, one seed only | `GET /trace?seed=N` |
 | The rest | `GET /assumptions`, `GET /strategies` |
 

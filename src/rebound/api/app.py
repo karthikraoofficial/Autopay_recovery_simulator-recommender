@@ -32,6 +32,10 @@ from rebound.api.service import (
 from rebound.config import load_assumptions
 from rebound.harness.segments import SegmentReport, render
 from rebound.harness.trace import MultipleSeedsError, Table, Trace, build_trace, to_csv
+from rebound.recommend.batch import BatchResult, BatchTooLargeError, run_batch, template
+from rebound.recommend.evidence import EvidenceUnavailableError, load_evidence
+from rebound.recommend.inputs import ObservedFailure
+from rebound.recommend.service import Recommendation, recommend
 
 # The Vite dev server. A simulator that runs locally and talks to nothing else does not
 # need a configurable origin list, and SPEC §7 says no cloud until a merchant asks.
@@ -257,6 +261,55 @@ def create_app() -> FastAPI:
                 },
             )
         return trace
+
+    # SPEC §14. A sibling of the simulator: these two routes run no simulation at all.
+    # The evidence artefact is loaded per request rather than cached on app state, so a
+    # regenerated report is picked up without a restart and a divergent one is refused at
+    # the first request rather than at boot.
+    @app.post("/recommend", response_model=Recommendation)
+    def post_recommend(failure: ObservedFailure) -> Recommendation:
+        """SPEC §14: an observed failure in, a retry time and the rule behind it out.
+
+        A missing minimum-set field arrives as a 422 from the input model, because it
+        leaves nothing servable. A missing *extended* field is not an error: it is
+        answered, with the strategies it would have unlocked named in `availability`.
+        """
+        try:
+            report = load_evidence(load_assumptions())
+        except EvidenceUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            return recommend(failure, report)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/recommend/template", response_class=PlainTextResponse)
+    def get_template(extended: bool = False) -> PlainTextResponse:
+        """The batch header row, derived from the tier definition in `recommend/inputs.py`."""
+        name = "extended" if extended else "minimum"
+        return PlainTextResponse(
+            template(extended=extended),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="rebound-recommend-{name}.csv"'
+            },
+        )
+
+    @app.post("/recommend/batch", response_model=BatchResult)
+    async def post_recommend_batch(request: Request) -> BatchResult:
+        """SPEC §14.9. The body is the CSV itself: a file upload would need a new
+        dependency, and the stack is fixed in SPEC §7."""
+        body = (await request.body()).decode("utf-8-sig")
+        try:
+            report = load_evidence(load_assumptions())
+        except EvidenceUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            return run_batch(body, report)
+        except BatchTooLargeError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/assumptions", response_model=AssumptionsView)
     def get_assumptions() -> AssumptionsView:

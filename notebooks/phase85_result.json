@@ -10,6 +10,7 @@
     20260808
   ],
   "months": 12,
+  "config_fingerprint": "9b86818887b853cb70020ce33451d1077e7ee4eb127fe69c255ac4f095eae4d9",
   "reference_strategy": "NoReschedule",
   "baseline_strategy": "FixedSchedule",
   "candidate_strategies": [

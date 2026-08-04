@@ -670,6 +670,14 @@ NON_SIMULATING_ROUTES = {
     ("GET", "/strategies"),
     ("GET", "/simulate/jobs/{job_id}"),
     ("POST", "/simulate/estimate"),
+    # SPEC §14. These quote a recorded measurement rather than deriving an artifact from a
+    # live run, so there is no headline to carry an expect_config against. The equivalent
+    # check is inside the service: `load_evidence` refuses an artefact whose
+    # config_fingerprint differs from the running configuration, and 503s rather than
+    # quoting it. `test_recommend.py` covers that path.
+    ("POST", "/recommend"),
+    ("POST", "/recommend/batch"),
+    ("GET", "/recommend/template"),
 }
 
 # FastAPI's own.
@@ -752,3 +760,80 @@ def test_a_matching_config_is_exported_by_segments(client: TestClient) -> None:
     ok = client.get("/segments", params={**params, "format": "text", "expect_config": fingerprint})
     assert ok.status_code == 200
     assert f"config_fingerprint: {fingerprint}" in ok.text
+
+
+# --- SPEC §14: the recommendation service -----------------------------------------------
+# A sibling of the simulator. These routes run no simulation, so the tests here are about
+# what reaches the merchant: a time, a refusal that names its field, and never a prediction.
+
+
+def _failure_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "mandate_ref": "M-9001",
+        "rail": "UPI_AUTOPAY",
+        "reason_code": "TECHNICAL_DECLINE",
+        "failed_at": "2026-03-10T11:00:00+00:00",
+        "amount_paise": 49900,
+        "mandate_cap_paise": 150000,
+        "attempt_number": 1,
+        "notified_at": "2026-02-28T11:00:00+00:00",
+        "prior_failure_count": 0,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_recommend_returns_a_time_and_the_rule_behind_it(client: TestClient) -> None:
+    response = client.post("/recommend", json=_failure_payload())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retry_at"] > _failure_payload()["failed_at"]
+    assert body["strategy"] and body["rule"]
+    assert body["evidence"]["segment_label"]
+
+
+def test_recommend_refuses_a_missing_minimum_field_by_name(client: TestClient) -> None:
+    """SPEC §14.3: a minimum-set field leaves nothing servable, so it is a 422."""
+    payload = _failure_payload(rail="ENACH")
+    response = client.post("/recommend", json=payload)
+    assert response.status_code == 422
+    assert "bank_batch_cutoff_time" in response.text
+
+
+def test_recommend_answers_an_extended_gap_rather_than_erroring(client: TestClient) -> None:
+    """SPEC §14.4: a missing extended field is answered, with what it would unlock."""
+    body = client.post("/recommend", json=_failure_payload()).json()
+    unavailable = [row for row in body["availability"] if not row["available"]]
+    assert unavailable and all(row["missing_fields"] for row in unavailable)
+
+
+def test_recommend_never_returns_a_success_probability(client: TestClient) -> None:
+    body = client.post("/recommend", json=_failure_payload()).json()
+    assert not [k for k in body if "prob" in k or "score" in k or "expected" in k]
+
+
+def test_a_hard_decline_is_refused_a_time_over_http(client: TestClient) -> None:
+    body = client.post("/recommend", json=_failure_payload(reason_code="MANDATE_REVOKED")).json()
+    assert body["retry_at"] is None
+    assert body["status"] == "stop, hard decline"
+
+
+def test_the_batch_template_is_offered_in_both_tiers(client: TestClient) -> None:
+    assert client.get("/recommend/template").text.startswith("mandate_ref,rail")
+    assert "bank_id" in client.get("/recommend/template", params={"extended": True}).text
+
+
+def test_batch_answers_per_row_and_counts_its_refusals(client: TestClient) -> None:
+    header = client.get("/recommend/template").text.strip()
+    tail = (
+        "TECHNICAL_DECLINE,2026-03-10T11:00:00+00:00,49900,150000,1,"
+        "2026-02-28T11:00:00+00:00,0,,"
+    )
+    good = f"M-1,UPI_AUTOPAY,{tail}"
+    bad = f"M-2,ENACH,{tail}"  # a batch-cleared rail with no cutoff column filled in
+    response = client.post("/recommend/batch", content=f"{header}\n{good}\n{bad}\n")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rows_answered"] == 1
+    assert body["rows_refused"] == 1
+    assert body["refusals_by_field"] == {"bank_batch_cutoff_time": 1}

@@ -926,6 +926,31 @@ assumptions:
     confidence: estimate
     notes: "An interactive run is the same model measured less precisely, not a different model. Four seeds gives intervals wide enough that a lift can look significant when it is not, which is why the API returns the seed count and the interval with every result and the dashboard shows both beside the number."
 
+  # --- Recommendation service (SPEC §14) ------------------------------------------
+  # The service runs no simulation. These describe which recorded measurement it is
+  # allowed to quote, and how large a batch it will accept -- nothing about the world.
+
+  recommend.evidence.book_size:
+    value: 400
+    unit: count
+    source: "The sizing the phase 8.5 segment report was run at (notebooks/phase85_segments.py). Recorded here so the evidence artefact's config_fingerprint can be recomputed and checked."
+    confidence: estimate
+    notes: "Not a modelling choice. Change it only alongside regenerating notebooks/phase85_result.json at the new sizing; otherwise the service refuses the artefact, which is the intended behaviour."
+
+  recommend.evidence.seeds:
+    value: 8
+    unit: count
+    source: "The seed count the phase 8.5 segment report was run at. Recorded for the same fingerprint check as the book size above."
+    confidence: estimate
+    notes: "Eight seeds is what every interval this service quotes was measured over. It is well below harness.bootstrap_seeds, and the intervals are correspondingly wide."
+
+  recommend.batch_max_rows:
+    value: 5000
+    unit: count
+    source: "A guard against a file that takes minutes to answer, not a modelling limit. No measurement behind it."
+    confidence: estimate
+    notes: "Over this the file is refused whole, before any row is processed, so a caller never gets a partial answer they might mistake for a complete one."
+
   # --- Failure-mix presets (SPEC §6.1, dashboard input) ---------------------------
   # SPEC §11 names the reason-code mix by vertical the largest uncertainty in the model,
   # and phase 8 measured that strategy lift is not robust across it. So the mix is a
@@ -1370,6 +1395,12 @@ open_questions:
     question: "Machine-dependent, not a property of the model. Re-measure on the machine the dashboard runs on, or drop the up-front estimate and show elapsed time alone."
   - key: api.interactive_seeds
     question: "How few seeds can an interactive run use before its intervals are so wide that exploring with it is misleading rather than merely imprecise?"
+  - key: recommend.evidence.book_size
+    question: "Not a question about the world. It records the sizing of the measurement the service quotes, and moves only when that measurement is re-run."
+  - key: recommend.evidence.seeds
+    question: "How many seeds must a segment interval be measured over before it is worth quoting to a merchant at all? Eight was chosen for runtime."
+  - key: recommend.batch_max_rows
+    question: "Not a question about the world. A file-size guard, set by how long anyone will wait."
   - key: preset.failure_mix.insufficient_funds_dominant.cushion_lognormal_sigma
     question: "Every preset.failure_mix.* value invents a book shape rather than measuring one. What reason-code mixes do real merchants in each vertical actually report? Until a pilot supplies counts, the dashboard's mix selector offers three guesses, and it says so."
   - key: preset.failure_mix.insufficient_funds_dominant.td_rate_max
