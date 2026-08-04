@@ -305,6 +305,18 @@ Two consequences, neither of them cosmetic:
 **Candidate for the first post-v0.1 engine change**, in its own commit after tagging: it changes every phase 4–7 number and each would need re-verifying against its recorded output hash. Until then, any segmentation on ticket or cap is a negative control, not a finding.
 
 
+### Known limitations of the batch endpoint, deferred past phase 10.5
+
+Logged rather than built. None of them is a finding about the model.
+
+- **No streaming or memory bound.** `run_batch` reads the whole body into a string and parses every row before the `recommend.batch_max_rows` cap is applied, so the cap bounds processing rather than memory. Fine at the current cap; it is the first thing to revisit if the cap is raised.
+- **No duplicate detection.** The same `mandate_ref` and `failed_at` twice in one file are answered twice, with no note that they were the same failure.
+- **Batch is minimum-tier by construction, and this is a format limitation, not a finding.** A CSV row cannot express `attempt_history` — a per-attempt structure does not fit one row — so `Tier.EXTENDED` is unreachable from an upload however many columns are filled in, including `bank_id`. **`BankAware`, `SalaryAware` and `Blended` can therefore never be selected from a CSV upload.**
+
+  Anyone reading a batch of answers will see `FixedSchedule` and `ReasonAware` and nothing else, and must not read that as those three strategies having lost. They were never eligible. Phase 8.5 measured `BankAware` as the winner on eNACH and `Blended` on two other segments, so the strategy a batch answer *omits* may be the one the evidence favours — which is exactly why every response names the unavailable winner and the field that would unlock it (§14.4).
+
+  Closing it needs a second uploaded file of attempts keyed on `mandate_ref`, in the shape §13.5 uses for the trace export: two files, one join key. Not in 10.5.
+
 ### Sensitivity sweep, phase 7 (run and valid; two rows outstanding)
 
 Run at 400 mandates x 12 months x 24 seeds, subject `Blended` vs `FixedSchedule`, 16 shortlisted keys. Output: `notebooks/phase7_sweep_output.txt`, `notebooks/phase7_sweep.json`.
