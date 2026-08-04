@@ -24,7 +24,13 @@ from rebound.recommend.adapter import (
     build_history,
     build_observable,
 )
-from rebound.recommend.batch import BatchTooLargeError, run_batch, template
+from rebound.recommend.batch import (
+    UNRECOGNISED_COLUMN,
+    BatchTooLargeError,
+    RefusalKind,
+    run_batch,
+    template,
+)
 from rebound.recommend.catalogue import BASELINE, availability
 from rebound.recommend.inputs import (
     EXTENDED_COLUMNS,
@@ -435,6 +441,61 @@ def test_refusals_are_counted_by_field(report: SegmentReport) -> None:
     result = run_batch(body, report)
     assert result.rows_refused == 2
     assert set(result.refusals_by_field) == {"bank_batch_cutoff_time", "original_attempt_at"}
+
+
+def test_a_row_longer_than_the_header_is_refused_not_trimmed(report: SegmentReport) -> None:
+    """The only path here that could answer confidently over data it had discarded.
+
+    `csv.DictReader` collects surplus values under `restkey` by default, so the row used
+    to be answered with the extra cell dropped and nothing said about it.
+    """
+    body = "\n".join([",".join(MINIMUM_COLUMNS), _csv_row() + ",junk"])
+    result = run_batch(body, report)
+    assert result.rows_answered == 0
+    assert result.rows_malformed == 1
+    refusal = result.refusals[0]
+    assert refusal.kind is RefusalKind.MALFORMED_ROW
+    assert "12 values but the header has 11" in refusal.detail
+    assert "junk" in refusal.detail
+
+
+def test_a_row_shorter_than_the_header_is_refused_too(report: SegmentReport) -> None:
+    """Reading a truncated tail as deliberately blank is a guess about which end was cut."""
+    body = "\n".join([",".join(MINIMUM_COLUMNS), "M-1,UPI_AUTOPAY,TECHNICAL_DECLINE"])
+    result = run_batch(body, report)
+    assert result.rows_malformed == 1
+    assert "ran off the end of the row" in result.refusals[0].detail
+
+
+def test_a_malformed_row_contributes_no_column_to_the_summary(report: SegmentReport) -> None:
+    body = "\n".join([",".join(MINIMUM_COLUMNS), _csv_row() + ",junk"])
+    result = run_batch(body, report)
+    assert result.refusals_by_field == {}
+    assert result.rows_refused == 1
+
+
+def test_the_summary_can_only_ever_be_keyed_on_columns(report: SegmentReport) -> None:
+    """A mis-delimited file gave DictReader one column named for the whole header line,
+    and that line went into the summary as though it were a field."""
+    header = ";".join(MINIMUM_COLUMNS)
+    body = "\n".join([header, _csv_row().replace(",", ";")])
+    result = run_batch(body, report)
+    allowed = set(EXTENDED_COLUMNS) | {UNRECOGNISED_COLUMN}
+    assert set(result.refusals_by_field) <= allowed
+    assert header not in result.refusals_by_field
+    assert UNRECOGNISED_COLUMN in result.refusals_by_field
+
+
+def test_an_unknown_column_lands_under_one_bounded_key(report: SegmentReport) -> None:
+    """However many unknown columns arrive, the summary stays readable as a column list."""
+    body = "\n".join(
+        [
+            ",".join([*MINIMUM_COLUMNS, "notes", "internal_id"]),
+            _csv_row() + ",hello,42",
+        ]
+    )
+    result = run_batch(body, report)
+    assert result.refusals_by_field == {UNRECOGNISED_COLUMN: 1}
 
 
 def test_an_oversized_file_is_refused_whole(report: SegmentReport, shipped: Assumptions) -> None:
