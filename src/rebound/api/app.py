@@ -122,6 +122,13 @@ def create_app() -> FastAPI:
         sizing: Sizing = Sizing.INTERACTIVE,
         master_seed: int = 20260801,
         fmt: str = Query(default="json", pattern="^(json|text)$", alias="format"),
+        expect_config: str | None = Query(
+            default=None,
+            description=(
+                "Config fingerprint of the run this report should match. Supplied by the "
+                "dashboard; a mismatch is refused rather than exported."
+            ),
+        ),
     ) -> SegmentReport | PlainTextResponse:
         """SPEC §12. Defaults to interactive sizing: a publication-sized segment run takes
         as long as a publication headline run, and a GET should not hold that open."""
@@ -137,6 +144,21 @@ def create_app() -> FastAPI:
             report = segment_report(profile, master_seed, sizing)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Same guard as /trace. This endpoint re-runs the simulation, so it can diverge
+        # from the headline on any config dimension -- not only on the profile, which it
+        # does receive, but on anything edited in assumptions.yaml in between.
+        if expect_config is not None and expect_config != report.config_fingerprint:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "this segment report would describe a different configuration from "
+                    f"the run it is meant to explain. Expected config {expect_config[:12]}, "
+                    f"this report is {report.config_fingerprint[:12]}. Nothing is exported. "
+                    "Re-run the simulation and download again; if assumptions.yaml changed "
+                    "in between, the earlier result no longer describes this configuration "
+                    "either."
+                ),
+            )
         if fmt == "text":
             # The rendered report, not a second formatter: the banner and the
             # plain-language verdicts are what stop the numbers being misread.

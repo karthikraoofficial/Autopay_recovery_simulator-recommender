@@ -269,6 +269,10 @@ class SegmentReport(DomainModel):
 
     seeds: tuple[int, ...] = Field(min_length=1)
     months: int = Field(gt=0)
+    # The configuration this report was built under. Symmetric with TraceHeader: any
+    # export derived from a headline run has to be checkable against it, because a re-run
+    # under changed assumptions is otherwise indistinguishable from the real thing.
+    config_fingerprint: str = Field(min_length=1)
     reference_strategy: str
     baseline_strategy: str
     candidate_strategies: tuple[str, ...]
@@ -465,6 +469,7 @@ def build_report(
     return SegmentReport(
         seeds=seeds,
         months=months,
+        config_fingerprint=assumptions.fingerprint(),
         reference_strategy=reference,
         baseline_strategy=baseline,
         candidate_strategies=candidates,
@@ -598,6 +603,8 @@ def render(report: SegmentReport, width: int = 96) -> str:
         f"reference {report.reference_strategy}  baseline {report.baseline_strategy}  "
         f"candidates {', '.join(report.candidate_strategies)}",
         f"total episodes {report.total_episodes:,}  at risk Rs {report.total_at_risk_inr:,.0f}",
+        "",
+        f"config_fingerprint: {report.config_fingerprint}",
         "",
         f"*** {report.tests_performed} TESTS PERFORMED. Every verdict below is corrected for "
         f"all of them (Bonferroni, alpha {report.corrected_alpha:.5f}). ***",

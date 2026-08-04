@@ -96,7 +96,12 @@ export default function Downloads({ result, profile }) {
   const segments = () =>
     download("segments", async () => {
       const text = await fetchText(
-        `${API}/segments?${query({ sizing: result.sizing, format: "text" })}`
+        `${API}/segments?${query({
+          sizing: result.sizing,
+          format: "text",
+          // Refused server-side if this report is not the run above it.
+          expect_config: result.config_fingerprint,
+        })}`
       );
       save(
         new Blob([text], { type: "text/plain" }),

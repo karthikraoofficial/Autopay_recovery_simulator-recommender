@@ -656,3 +656,99 @@ def test_the_text_report_is_the_same_run_as_the_json(client: TestClient) -> None
 
 def test_an_unknown_segment_format_is_refused(client: TestClient) -> None:
     assert client.get("/segments", params={"book_size": 40, "format": "pdf"}).status_code == 422
+
+
+# --- every derived export must be checkable against its headline --------------
+
+# Routes that RUN the simulation and produce a headline. These emit a fingerprint for
+# derived exports to be compared against; they do not consume one.
+HEADLINE_ROUTES = {("POST", "/simulate"), ("POST", "/simulate/jobs")}
+
+# Routes that do not run the simulation at all, so there is nothing to diverge.
+NON_SIMULATING_ROUTES = {
+    ("GET", "/assumptions"),
+    ("GET", "/strategies"),
+    ("GET", "/simulate/jobs/{job_id}"),
+    ("POST", "/simulate/estimate"),
+}
+
+# FastAPI's own.
+BUILT_IN_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
+
+
+def _routes(app) -> list[tuple[str, str, set[str]]]:
+    found = []
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        dependant = getattr(route, "dependant", None)
+        if path is None or dependant is None or path in BUILT_IN_ROUTES:
+            continue
+        params = {p.name for p in dependant.query_params}
+        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
+            found.append((method, path, params))
+    return found
+
+
+def test_every_export_endpoint_compares_its_config_against_the_headline() -> None:
+    """Fails closed. A new endpoint that re-runs the simulation must either declare itself
+    above or accept `expect_config`, and until it does this test fails.
+
+    The rule it enforces: any endpoint deriving an artifact from a headline run can diverge
+    from it on ANY config dimension, and that divergence is invisible — the seed fixes the
+    mandate ids, and a re-run's own output hash differs from the headline's by construction
+    anyway. /trace shipped without this and silently traced a population generated at the
+    default ticket. Comparing the input config is the only check that catches the general
+    case rather than one field at a time.
+    """
+    undeclared, unguarded = [], []
+    for method, path, params in _routes(create_app()):
+        if (method, path) in HEADLINE_ROUTES or (method, path) in NON_SIMULATING_ROUTES:
+            continue
+        if "expect_config" not in params:
+            # Two different failures: a route nobody classified, versus one classified as
+            # an export and missing the guard. Both fail; the message says which.
+            (undeclared if not path.startswith(("/segments", "/trace")) else unguarded).append(
+                f"{method} {path}"
+            )
+    assert unguarded == [], (
+        f"export endpoints without an expect_config guard: {unguarded}. "
+        "An export derived from a headline run must be refusable when the config differs."
+    )
+    assert undeclared == [], (
+        f"unclassified routes: {undeclared}. Add each to HEADLINE_ROUTES (it produces a "
+        "headline), NON_SIMULATING_ROUTES (it does not run the simulation), or give it an "
+        "expect_config guard (it derives an artifact from a headline run)."
+    )
+
+
+def test_the_headline_routes_emit_a_fingerprint_to_compare_against() -> None:
+    """The other half. A guard on the exports is useless if the headline never publishes
+    what they should match."""
+    fields = set(SimulationResult.model_fields) | set(SimulationResult.model_computed_fields)
+    assert "config_fingerprint" in fields
+    # A background run reaches the dashboard as JobStatus.result, so the fingerprint has
+    # to survive that hop too — the publication path is exactly where a stale download is
+    # most likely, because minutes pass between running and downloading.
+    assert JobStatus.model_fields["result"].annotation == SimulationResult | None
+
+
+def test_a_mismatched_config_is_refused_by_segments_too(client: TestClient) -> None:
+    """Symmetric with the /trace guard. A mismatch is a refusal, never a warning printed
+    on top of an export someone will use anyway."""
+    response = client.get(
+        "/segments",
+        params={"book_size": 40, "format": "text", "expect_config": "0" * 64},
+    )
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "different configuration" in detail
+    assert "Nothing is exported" in detail
+
+
+def test_a_matching_config_is_exported_by_segments(client: TestClient) -> None:
+    """The guard must not refuse the good case, or it gets routed around."""
+    params = {"book_size": 40, "master_seed": MASTER_SEED}
+    fingerprint = client.get("/segments", params=params).json()["config_fingerprint"]
+    ok = client.get("/segments", params={**params, "format": "text", "expect_config": fingerprint})
+    assert ok.status_code == 200
+    assert f"config_fingerprint: {fingerprint}" in ok.text
