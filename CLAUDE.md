@@ -2,7 +2,7 @@
 
 Read `SPEC.md` once at session start. Do not re-read it unless I say the spec changed.
 
-**Current phase: 8.7 (complete), tagged v0.1-sim. Next: the post-v0.1 population fix (SPEC §11: ticket dispersion + caps correlated with income, together), and the outstanding corrected sweep of the three strategy.blended.weight_* keys (~3.5h).** Update this line when a phase completes.
+**Current phase: 8.7 (complete), tagged v0.3-exports (v0.1-sim and v0.2-demo remain at phases 7 and 8). Next: the post-v0.1 population fix (SPEC §11: ticket dispersion + caps correlated with income, together), and the outstanding corrected sweep of the three strategy.blended.weight_* keys (~3.5h).** Update this line when a phase completes.
 
 ## Ground rules
 

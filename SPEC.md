@@ -308,6 +308,8 @@ Two consequences, neither of them cosmetic:
 
 Run at 400 mandates x 12 months x 24 seeds, subject `Blended` vs `FixedSchedule`, 16 shortlisted keys. Output: `notebooks/phase7_sweep_output.txt`, `notebooks/phase7_sweep.json`.
 
+**Sequence note.** This sweep is phase 7's last deliverable but it post-dates the `v0.1-sim` tag (`94c5554`) that phase 7 otherwise closes: the first attempt was void (see below), and the corrected run landed eleven commits later, during phase 8.7. `v0.1-sim` was left where it is rather than moved, so the sweep result ships in **`v0.3-exports`**. Anyone reading `v0.1-sim` as "phase 7 complete" should know its sensitivity analysis is not in that tree.
+
 **Base effect: [₹1,007, ₹4,666] per book, point ₹2,863 — excludes zero, so the ranking is meaningful.**
 
 Fragile keys (the conclusion's sign flips or its significance is lost when the assumption moves ±50%):
