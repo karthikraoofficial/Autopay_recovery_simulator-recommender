@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import pytest
 
-from rebound.config import Assumptions
+from rebound.config import Assumption, Assumptions, Confidence
 from rebound.harness.sensitivity import (
     Sweep,
     SweepPoint,
     SweepResult,
     UnderpoweredSweepError,
+    _is_probability,
     fragile_first,
     run_sweep,
     scaled,
@@ -281,3 +282,59 @@ def test_the_sweep_refuses_to_rank_around_a_null_base(shipped: Assumptions) -> N
     )
     with pytest.raises(UnderpoweredSweepError, match="contains zero"):
         run_sweep(sweep, ["book.avg_ticket_paise"])
+
+
+# --- hint matching is on key tokens, not substrings ----------------------------
+
+
+def test_a_hint_inside_a_longer_word_is_not_a_match(shipped: Assumptions) -> None:
+    """The bug: "rate" is inside "st-rate-gy", so every strategy.* key with unit ratio was
+    classified as a probability and clamped at 0.999. A blend weight of 1.0 was then swept
+    0.90 to 0.999 instead of 0.5 to 1.5, and the resulting swing was reported beside keys
+    that had been swept properly."""
+    entry = Assumption(
+        value=1.0,
+        unit="ratio",
+        source="synthetic, for this test",
+        confidence=Confidence.ESTIMATE,
+    )
+    # "accurate" contains "rate"; "sharedness" contains "share"; neither is a probability.
+    assert not _is_probability("engine.accurate_timing.factor", entry)
+    assert not _is_probability("engine.sharedness.factor", entry)
+    assert not _is_probability("strategy.blended.weight_reason", entry)
+
+
+def test_the_blend_weights_are_no_longer_treated_as_probabilities(
+    shipped: Assumptions,
+) -> None:
+    """A weight is not a probability: 1.0 x 1.5 = 1.5 is a perfectly meaningful setting,
+    and clamping it to 0.999 asks a different question."""
+    for key in (
+        "strategy.blended.weight_reason",
+        "strategy.blended.weight_salary",
+        "strategy.blended.weight_bank",
+    ):
+        assert not _is_probability(key, shipped.assumptions[key])
+    swept, clamped = scaled(shipped, "strategy.blended.weight_reason", 1.5)
+    assert not clamped
+    assert swept.value("strategy.blended.weight_reason") == pytest.approx(1.5)
+    swept, clamped = scaled(shipped, "strategy.blended.weight_reason", 0.5)
+    assert not clamped
+    assert swept.value("strategy.blended.weight_reason") == pytest.approx(0.5)
+
+
+def test_real_probabilities_are_still_matched(shipped: Assumptions) -> None:
+    """The fix must not overshoot. A hint matching a whole word or a whole dotted segment
+    still counts — including on strategy.* keys, which do carry real probabilities."""
+    for key in (
+        "population.bank.uptime_daytime",
+        "population.customer.band_share.low",
+        "population.bank.td_rate_min",
+        "engine.reaction.revocation_base_hazard",
+        "engine.reaction.topup_probability_notified",
+        "strategy.bank_aware.prior_success_rate",
+        "strategy.salary_aware.success_peak_probability",
+        # A multi-word hint matching a whole dotted segment rather than one word.
+        "population.customer.intent_score_mean",
+    ):
+        assert _is_probability(key, shipped.assumptions[key]), key

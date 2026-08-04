@@ -100,10 +100,23 @@ def sweepable_keys(assumptions: Assumptions) -> tuple[str, ...]:
     )
 
 
+def _key_tokens(key: str) -> frozenset[str]:
+    """The dotted segments of a key, plus the underscore-separated words within them.
+
+    Matching hints as bare substrings was a real defect: `"rate"` is inside `"st-rate-gy"`,
+    so every `strategy.*` key with unit `ratio` was classified as a probability and clamped
+    at 0.999. `strategy.blended.weight_reason` (1.0) was then swept 0.90 to 0.999 instead
+    of 0.5 to 1.5 — a question far smaller than the one asked, reported as if it were the
+    same. Tokens make the match exact.
+    """
+    segments = key.split(".")
+    return frozenset(segments) | {word for segment in segments for word in segment.split("_")}
+
+
 def _is_probability(key: str, entry: Assumption) -> bool:
     if entry.unit not in _PROBABILITY_UNITS:
         return False
-    return any(hint in key for hint in _PROBABILITY_KEY_HINTS)
+    return any(hint in _key_tokens(key) for hint in _PROBABILITY_KEY_HINTS)
 
 
 def _mix_group(key: str) -> tuple[str, ...] | None:

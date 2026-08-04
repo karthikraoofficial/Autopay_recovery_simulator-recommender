@@ -304,6 +304,28 @@ Two consequences, neither of them cosmetic:
 **Candidate for the first post-v0.1 engine change**, in its own commit after tagging: it changes every phase 4–7 number and each would need re-verifying against its recorded output hash. Until then, any segmentation on ticket or cap is a negative control, not a finding.
 
 
+### Sensitivity sweep, phase 7 (run and valid; two rows outstanding)
+
+Run at 400 mandates x 12 months x 24 seeds, subject `Blended` vs `FixedSchedule`, 16 shortlisted keys. Output: `notebooks/phase7_sweep_output.txt`, `notebooks/phase7_sweep.json`.
+
+**Base effect: [₹1,007, ₹4,666] per book, point ₹2,863 — excludes zero, so the ranking is meaningful.**
+
+Fragile keys (the conclusion's sign flips or its significance is lost when the assumption moves ±50%):
+
+| key | max relative swing |
+|---|---|
+| `population.balance.spend_decay_rate.low` | 282.1% |
+| `population.balance.cushion_lognormal_sigma` | 85.2% |
+| `compliance.reschedule_horizon_days` | 51.9% |
+
+**Two of the three are the balance process — the part of the model with no empirical grounding at all.** The conclusion is most fragile to the assumptions there is least basis for. `book.avg_ticket_paise` swings 194.4% without being flagged: "fragile" means the sign flips or significance is lost, not that the magnitude moves, and that distinction has to be stated to anyone reading the table.
+
+**Two rows are unreliable and must not be quoted.** `strategy.blended.weight_reason` (14.2%) and `strategy.blended.weight_salary` (6.2%) were clamped during the run by the substring-matching defect in `_is_probability`: `"rate"` is inside `"st-rate-gy"`, so every `strategy.*` key with unit `ratio` was treated as a probability and clamped at 0.999. `weight_reason` (1.0) was swept 0.90 to 0.999 rather than 0.5 to 1.5 — a much smaller question, reported beside keys swept properly.
+
+The matcher is now fixed (tokens, not substrings) and the three blend weights sweep correctly. **The other 14 keys and every fragility verdict are unaffected** — verified key by key; neither clamped key was flagged fragile, so the fragility conclusion stands as written.
+
+**Outstanding: a corrected sweep of the three `strategy.blended.weight_*` keys, ~3.5 hours at the measured rate** (2,071s per experiment; note the first estimate of 124s was wrong by a factor of ~17, because cost does not scale linearly with strategy count). Not a blocker for v0.1-sim; the headline and the fragility ranking do not depend on those two figures.
+
 ### Measured phase 8.5 — segment findings
 
 Both measured on a 400-mandate book over 12 months, 8 seeds, 90% CI, Bonferroni-corrected across all 72 tests. See `notebooks/phase85_segments.py`.
