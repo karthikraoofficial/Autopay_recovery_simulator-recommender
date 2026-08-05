@@ -158,3 +158,18 @@ MINIMUM_COLUMNS: tuple[str, ...] = (
 )
 
 EXTENDED_COLUMNS: tuple[str, ...] = (*MINIMUM_COLUMNS, "bank_id")
+
+
+def required_columns() -> frozenset[str]:
+    """Columns a file must carry whatever its rows say (SPEC §15.1).
+
+    Derived from the model, never listed by hand, so a field added to `ObservedFailure`
+    cannot be forgotten by the header check. `original_attempt_at` and
+    `bank_batch_cutoff_time` are excluded by construction: they are conditionally required
+    *per row*, so their absence is a row-level refusal at the level that knows.
+    """
+    return frozenset(
+        name
+        for name, field in ObservedFailure.model_fields.items()
+        if field.is_required() and name in EXTENDED_COLUMNS
+    )

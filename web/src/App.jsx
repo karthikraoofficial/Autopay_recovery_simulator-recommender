@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Chart from "./Chart.jsx";
 import Assumptions from "./Assumptions.jsx";
 import Downloads from "./Downloads.jsx";
+import Ingest from "./Ingest.jsx";
 import { duration, inr, pct } from "./format.js";
 
 const API = "/api";
@@ -467,6 +468,10 @@ export default function App() {
 
       {result ? <Result result={result} job={job} profile={profile} /> : null}
       {result ? <Downloads result={result} profile={profile} /> : null}
+
+      {/* SPEC §15.6. Below the simulated headline and independent of it: this section
+          answers real failures and needs no run to have happened first. */}
+      <Ingest />
 
       <Assumptions view={assumptions} error={assumptionsError} />
     </main>

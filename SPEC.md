@@ -265,6 +265,7 @@ rebound/
 | 8.5 | Segment report (§12) | Segments reconcile to the headline; every verdict corrected for multiplicity |
 | 9 | `MLRanked` | Only if 4–6 plateau. **Phase 7 evidence says skip it:** rescheduling (plumbing, no model) is worth ~4× the best retry logic and is significant under every reason-code mix. Do not build this without a specific reason that survives that finding. |
 | 10 | Recommendation service (§14) | A merchant-supplied failure returns a retry time, the rule that produced it, and the measured lift for its segment. A **sibling of the simulator, not a phase of it** — it adds no simulation and reorders nothing above. Phase 9 stays skipped on phase 7's evidence; phase 10 does not depend on it. |
+| 10.5 | Ingestion surface (§15) | A merchant's own CSV, in their own vocabulary, answers row by row. File-level defects refuse the file whole; mapping profiles are stored and fingerprinted. Hardens phase 10's batch path rather than building a second one beside it. |
 
 ---
 
@@ -597,3 +598,80 @@ This is worth restating because the cap is the most natural-looking cut a reader
 ### 14.10 Determinism
 
 Same input, same configuration, same output. The strategies' `clock` argument is bound to `failed_at`, never to the wall clock; no field of the response is drawn from the current time. The evidence artefact's `config_fingerprint` is echoed so a response can be traced to the measurement that justified it.
+
+---
+
+## 15. Ingestion surface (phase 10.5)
+
+Phase 10 answers a failure that already speaks this project's vocabulary. Phase 10.5 is what a merchant actually has: a CSV export in their own words, with their own column names, their own reason codes and their own date format.
+
+**It hardens the existing path rather than building a second one.** `run_batch` stays the row engine and `POST /recommend/batch` stays the endpoint. What is added sits either side of it: a file-level pre-pass before any row is read, and a mapping layer that turns the merchant's vocabulary into the canonical fields on the way in.
+
+**Columns are defined in §14.9 and derived from `recommend/inputs.py`.** Nothing in this section restates them, and neither does the template, the header check, or the UI.
+
+### 15.1 File-level defects refuse the file whole
+
+A defect that belongs to the file is reported once, naming the defect. It is not diagnosed four thousand times, once per row.
+
+Checked in this order, each refusing before the next runs, because a failure at one level makes every later level's report meaningless — a mis-decoded file has no meaningful delimiter, and a mis-delimited one has no meaningful columns:
+
+| Order | Check | Refused when |
+|---|---|---|
+| 1 | **Encoding** | The body is not valid UTF-8 (a BOM is accepted and stripped). |
+| 2 | **Delimiter** | Another candidate (`;`, tab, `\|`) splits the header into more fields than a comma does. The message names the delimiter that was found. |
+| 3 | **Header present** | The body is empty, or its first line carries no recognised column at all. |
+| 4 | **Header schema** | After column aliasing: any unknown column, or any structurally required column absent. Both are listed by name. |
+| 5 | **Row count** | Over `recommend.batch_max_rows`, as before. |
+| 6 | **Header-only** | A valid header with no data rows. |
+
+Structurally required columns are **derived from the model** — the fields of `ObservedFailure` with no default — never listed by hand. `original_attempt_at` and `bank_batch_cutoff_time` are conditionally required *per row* (§14.2) and so are optional as columns; a row that needs one and lacks it is a row-level refusal, which is the right level for it.
+
+**Header-only and empty files refuse.** Answering `200` with zero rows treats "you sent nothing" as a successful answer about nothing, and a caller whose export silently produced no rows learns it from a count they were not looking at.
+
+### 15.2 Row-level refusals stay per row
+
+Everything that varies row to row is answered row to row: a value in the wrong format, an unmapped code, a missing conditional field, a row whose length disagrees with the header. One bad row must not cost the good ones their answers.
+
+**Every refused row echoes the input it was refused for**: the values exactly as sent, before mapping, under the canonical column names. Values stay raw because a caller fixing their file needs to see what they sent rather than what we turned it into; the column names are canonical so that the refusals table is itself a valid upload once corrected. A caller can then fix and resubmit from the response alone rather than going back to their own file to work out which line it was. The echo is the merchant's own data returning to them, so it discloses nothing the upload did not.
+
+### 15.3 Mapping profiles are stored, not supplied
+
+A profile lives in `config/merchants/<name>.yaml` and is named in the request. **It is never uploaded with the file.**
+
+A mapping supplied per upload is unversioned by construction: the same file answers differently on two days and nothing records what moved. Stored profiles put the vocabulary under the same review as everything else in `config/`.
+
+A profile may declare:
+
+| Key | Purpose |
+|---|---|
+| `reason_codes` | Merchant code → `ReasonCode`. The reason this phase exists. |
+| `rails` | Merchant rail name → `Rail`. |
+| `columns` | Merchant column name → canonical column. Applied before the header check, so the merchant's own export headers are what they send. |
+| `datetime_format` | `strptime` format for the datetime columns. ISO-8601 is assumed when absent. |
+| `timezone` | UTC offset applied to datetimes that carry none. Required if `datetime_format` produces naive times, because §14.2 accepts only aware ones and inventing an offset would move the recommendation by hours. |
+
+**Unmapped values still refuse.** A code the profile does not know is a row refusal naming the value and the profile that lacked it — never passed through, never guessed at by case-folding or fuzzy match. A mapping that quietly resolved `U31` to whatever `U30` meant would be inventing the merchant's data.
+
+Every profile is loaded and validated against the enums at request time, so a profile mapping to a code that does not exist fails when it is used rather than when someone reads it.
+
+### 15.4 The mapping fingerprint, and being told when it moved
+
+Each profile carries a **`mapping_fingerprint`**: a digest over its semantic content — the mappings and formats — and not its description or notes, exactly as `Assumptions.fingerprint()` excludes sources and notes. Editing a comment must not invalidate a comparison.
+
+It is echoed **beside `evidence_fingerprint` in every recommendation**, in the batch summary, and in the `#` header block of any CSV output. `null` there means no mapping was applied and the values arrived already canonical, which is the case for `POST /recommend`.
+
+A fingerprint only helps if something compares it. `POST /recommend/batch` therefore accepts **`expect_mapping`**, and refuses with `409` when the named profile's fingerprint differs — the same shape as `expect_config` on `/segments` and `/trace`, and for the same reason. A merchant re-running a file against a mapping they believe unchanged should be **told** it changed, not left to notice a hash. Nothing is answered on a mismatch: a partial answer under an unexpected mapping is the outcome the parameter exists to prevent.
+
+### 15.5 Output
+
+`format=json` (default) returns the batch result. `format=csv&table=answers|refusals` returns that table, with a `#`-prefixed header block carrying both fingerprints, the profile name and the row counts — the same shape as §13.2, and parseable with `comment='#'`.
+
+Two tables rather than one: an answer and a refusal have almost no columns in common, and a single table would be mostly empty cells with a status column deciding which half to read.
+
+### 15.6 Upload UI
+
+One page in the existing dashboard: pick a stored profile, drop a file, see either the file-level verdict — one sentence naming the defect — or the per-row split with the refusal summary above the rows, and download either table.
+
+It shows both fingerprints beside the result. It does **not** offer to edit a mapping: a profile edited in a browser is a mapping supplied per upload wearing a different hat, and §15.3 exists to prevent that.
+
+The §14.7 caveats travel with every row, and the §11 note that batch is minimum-tier by construction is shown once above the table — a page listing only `FixedSchedule` and `ReasonAware` must not read as those being the strategies that won.

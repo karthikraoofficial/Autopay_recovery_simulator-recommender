@@ -20,7 +20,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from rebound.config import Assumptions, load_assumptions
 from rebound.harness.segments import SegmentReport
+from rebound.recommend.ingest import check_has_rows, prepare
 from rebound.recommend.inputs import EXTENDED_COLUMNS, MINIMUM_COLUMNS, ObservedFailure
+from rebound.recommend.mapping import MerchantMapping, UnmappedValueError
 from rebound.recommend.service import Recommendation, recommend
 
 # Surplus values land here and missing ones are filled with this, so that a row whose
@@ -39,6 +41,7 @@ class BatchTooLargeError(ValueError):
 
 class RefusalKind(StrEnum):
     MALFORMED_ROW = "malformed row"
+    UNMAPPED_VALUE = "unmapped value"
     FIELD = "field"
 
 
@@ -55,11 +58,21 @@ class RowRefusal(BaseModel):
     # of columns.
     fields: tuple[str, ...] = ()
     detail: str = Field(min_length=1)
+    # SPEC §15.2: the raw cells this row was refused for, so a caller can fix and resubmit
+    # from the response rather than going back to their file to work out which line it was.
+    # The merchant's own data returning to them; the upload already disclosed it.
+    input: dict[str, str] = Field(default_factory=dict)
 
 
 class BatchResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    # SPEC §15.4. Both fingerprints on the summary, so a file answered differently on two
+    # days is traceable to which of the two inputs moved. `None` means no mapping was
+    # applied and the values arrived already canonical.
+    mapping_profile: str | None = None
+    mapping_fingerprint: str | None = None
+    evidence_fingerprint: str = Field(min_length=1)
     rows_read: int = Field(ge=0)
     rows_answered: int = Field(ge=0)
     rows_refused: int = Field(ge=0)
@@ -173,40 +186,84 @@ def _refusal(row_number: int, values: dict[str, str], error: ValidationError) ->
         mandate_ref=values.get("mandate_ref"),
         fields=_fields_in(error),
         detail=detail,
+        input=values,
     )
 
 
+def _unmapped_refusal(
+    row_number: int, values: dict[str, str], error: UnmappedValueError
+) -> RowRefusal:
+    return RowRefusal(
+        row_number=row_number,
+        kind=RefusalKind.UNMAPPED_VALUE,
+        mandate_ref=values.get("mandate_ref"),
+        fields=(error.column,) if error.column in EXTENDED_COLUMNS else (),
+        detail=str(error),
+        input=values,
+    )
+
+
+def _answer_row(
+    row_number: int,
+    row: dict[str, object],
+    mapping: MerchantMapping | None,
+    report: SegmentReport,
+    assumptions: Assumptions,
+) -> Recommendation | RowRefusal:
+    """One row: shape, then vocabulary, then the model, then the same `recommend` as §14."""
+    malformed = _shape_refusal(row_number, row)
+    if malformed is not None:
+        return malformed
+    values = _clean(row)
+    try:
+        mapped = mapping.apply(values) if mapping is not None else values
+    except UnmappedValueError as error:
+        return _unmapped_refusal(row_number, values, error)
+    try:
+        failure = ObservedFailure.model_validate(mapped)
+    except ValidationError as error:
+        # The echo is the *raw* cells, not the mapped ones: a caller fixing their file
+        # needs to see what they sent, not what we turned it into.
+        return _refusal(row_number, values, error)
+    return recommend(failure, report, assumptions, mapping_fingerprint=_fingerprint(mapping))
+
+
+def _fingerprint(mapping: MerchantMapping | None) -> str | None:
+    return mapping.fingerprint() if mapping is not None else None
+
+
 def run_batch(
-    body: str,
+    body: bytes | str,
     report: SegmentReport,
     assumptions: Assumptions | None = None,
+    mapping: MerchantMapping | None = None,
 ) -> BatchResult:
-    """Answer every row that can be answered, and account for every row that cannot."""
+    """Answer every row that can be answered, and account for every row that cannot.
+
+    File-level defects are refused whole by `ingest.prepare` before any row is read
+    (SPEC §15.1); everything that varies row to row is answered row to row (SPEC §15.2).
+    """
     assumptions = assumptions or load_assumptions()
     max_rows = int(assumptions.value("recommend.batch_max_rows"))
-    reader = csv.DictReader(io.StringIO(body), restkey=_EXTRA_KEY, restval=_MISSING)
+    text = prepare(body if isinstance(body, bytes) else body.encode("utf-8"), mapping)
+    reader = csv.DictReader(io.StringIO(text), restkey=_EXTRA_KEY, restval=_MISSING)
     rows = list(reader)
     if len(rows) > max_rows:
         raise BatchTooLargeError(
             f"{len(rows)} rows exceeds recommend.batch_max_rows ({max_rows}). Nothing was "
             "processed; split the file rather than reading a partial answer as a whole one."
         )
+    check_has_rows(len(rows))
     answers: list[Recommendation] = []
     refusals: list[RowRefusal] = []
     for index, row in enumerate(rows, start=2):  # row 1 is the header, as the caller sees it
-        malformed = _shape_refusal(index, row)
-        if malformed is not None:
-            refusals.append(malformed)
-            continue
-        values = _clean(row)
-        try:
-            failure = ObservedFailure.model_validate(values)
-        except ValidationError as error:
-            refusals.append(_refusal(index, values, error))
-            continue
-        answers.append(recommend(failure, report, assumptions))
+        outcome = _answer_row(index, row, mapping, report, assumptions)
+        (answers if isinstance(outcome, Recommendation) else refusals).append(outcome)  # type: ignore[arg-type]
     counts = Counter(field for refusal in refusals for field in refusal.fields)
     return BatchResult(
+        mapping_profile=mapping.name if mapping is not None else None,
+        mapping_fingerprint=_fingerprint(mapping),
+        evidence_fingerprint=report.config_fingerprint,
         rows_read=len(rows),
         rows_answered=len(answers),
         rows_refused=len(refusals),

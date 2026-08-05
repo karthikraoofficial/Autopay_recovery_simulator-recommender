@@ -33,8 +33,20 @@ from rebound.config import load_assumptions
 from rebound.harness.segments import SegmentReport, render
 from rebound.harness.trace import MultipleSeedsError, Table, Trace, build_trace, to_csv
 from rebound.recommend.batch import BatchResult, BatchTooLargeError, run_batch, template
+
+# Aliased: `Table` is already the trace's table selector (SPEC §13.5), and two
+# different meanings under one name in one router is how the wrong one gets used.
+from rebound.recommend.csv_out import Table as BatchTable
+from rebound.recommend.csv_out import to_csv as batch_to_csv
 from rebound.recommend.evidence import EvidenceUnavailableError, load_evidence
+from rebound.recommend.ingest import FileRefusalError
 from rebound.recommend.inputs import ObservedFailure
+from rebound.recommend.mapping import (
+    MappingError,
+    MerchantMapping,
+    available_mappings,
+    load_mapping,
+)
 from rebound.recommend.service import Recommendation, recommend
 
 # The Vite dev server. A simulator that runs locally and talks to nothing else does not
@@ -52,6 +64,60 @@ class RunEstimate(BaseModel):
     book_size_capped: bool
     n_seeds: int
     estimated_seconds: float
+
+
+class MappingSummary(BaseModel):
+    """A stored mapping profile as the UI needs to see it: what it is and what it hashes to."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    description: str | None = None
+    fingerprint: str
+    reason_codes: int
+    rails: int
+    renamed_columns: int
+
+
+def _mapping_or_422(name: str | None) -> MerchantMapping | None:
+    if name is None:
+        return None
+    try:
+        return load_mapping(name)
+    except MappingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _check_expected_mapping(profile: MerchantMapping | None, expected: str | None) -> None:
+    """SPEC §15.4, the same shape as `expect_config` on /segments and /trace.
+
+    A fingerprint only helps if something compares it. A merchant re-running a file against
+    a mapping they believe unchanged is told that it changed, rather than being left to
+    notice a hash. Nothing is answered on a mismatch: a partial answer under an unexpected
+    mapping is the outcome the parameter exists to prevent.
+    """
+    if expected is None:
+        return
+    if profile is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "expect_mapping was given without a mapping. There is no profile to "
+                "compare it against; name one with ?mapping="
+            ),
+        )
+    actual = profile.fingerprint()
+    if actual != expected:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"the mapping profile '{profile.name}' is not the one this file was "
+                f"expected to be read through. Expected {expected[:12]}, the stored "
+                f"profile is {actual[:12]}. Nothing was answered. The same file read "
+                "through a different vocabulary can produce different recommendations, so "
+                "the difference is reported rather than absorbed."
+            ),
+        )
 
 
 class SimulateRequest(BaseModel):
@@ -295,21 +361,77 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.post("/recommend/batch", response_model=BatchResult)
-    async def post_recommend_batch(request: Request) -> BatchResult:
-        """SPEC §14.9. The body is the CSV itself: a file upload would need a new
-        dependency, and the stack is fixed in SPEC §7."""
-        body = (await request.body()).decode("utf-8-sig")
+    @app.get("/recommend/mappings", response_model=list[MappingSummary])
+    def get_mappings() -> list[MappingSummary]:
+        """SPEC §15.3: the stored profiles, with their fingerprints. Never an editor."""
+        summaries = []
+        for name in available_mappings():
+            profile = load_mapping(name)
+            summaries.append(
+                MappingSummary(
+                    name=name,
+                    description=profile.description,
+                    fingerprint=profile.fingerprint(),
+                    reason_codes=len(profile.reason_codes),
+                    rails=len(profile.rails),
+                    renamed_columns=len(profile.columns),
+                )
+            )
+        return summaries
+
+    # response_model=None: this route returns either a BatchResult or a CSV response, and
+    # FastAPI cannot build one response model from that union.
+    @app.post("/recommend/batch", response_model=None)
+    async def post_recommend_batch(
+        request: Request,
+        mapping: str | None = Query(
+            default=None,
+            description=(
+                "Name of a stored profile in config/merchants/. Never uploaded with the "
+                "file: an unversioned mapping answers the same file differently on two "
+                "days with nothing recording why (SPEC §15.3)."
+            ),
+        ),
+        expect_mapping: str | None = Query(
+            default=None,
+            description=(
+                "Fingerprint the named profile is expected to have. A mismatch is refused "
+                "rather than answered under a mapping the caller did not expect."
+            ),
+        ),
+        fmt: str = Query(default="json", pattern="^(json|csv)$", alias="format"),
+        table: BatchTable = BatchTable.ANSWERS,
+    ) -> BatchResult | PlainTextResponse:
+        """SPEC §14.9/§15. The body is the CSV itself: a file upload would need a new
+        dependency, and the stack is fixed in SPEC §7.
+
+        File-level defects (encoding, delimiter, header) refuse the whole file with one
+        message; row-level defects are answered per row.
+        """
+        body = await request.body()
         try:
             report = load_evidence(load_assumptions())
         except EvidenceUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        profile = _mapping_or_422(mapping)
+        _check_expected_mapping(profile, expect_mapping)
         try:
-            return run_batch(body, report)
+            result = run_batch(body, report, mapping=profile)
         except BatchTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
-        except (KeyError, ValueError) as exc:
+        except (FileRefusalError, KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if fmt == "csv":
+            return PlainTextResponse(
+                batch_to_csv(result, table),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="rebound-recommend-{table.value}.csv"'
+                    )
+                },
+            )
+        return result
 
     @app.get("/assumptions", response_model=AssumptionsView)
     def get_assumptions() -> AssumptionsView:

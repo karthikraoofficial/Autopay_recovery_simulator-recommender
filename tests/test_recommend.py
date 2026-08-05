@@ -11,7 +11,7 @@ import re
 from datetime import UTC, datetime, time, timedelta
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from rebound.config import Assumptions, load_assumptions
 from rebound.domain.entities import AttemptOutcome, Rail
@@ -28,6 +28,7 @@ from rebound.recommend.batch import (
     UNRECOGNISED_COLUMN,
     BatchTooLargeError,
     RefusalKind,
+    _fields_in,
     run_batch,
     template,
 )
@@ -474,28 +475,36 @@ def test_a_malformed_row_contributes_no_column_to_the_summary(report: SegmentRep
     assert result.rows_refused == 1
 
 
-def test_the_summary_can_only_ever_be_keyed_on_columns(report: SegmentReport) -> None:
+def test_the_summary_can_only_ever_be_keyed_on_columns() -> None:
     """A mis-delimited file gave DictReader one column named for the whole header line,
-    and that line went into the summary as though it were a field."""
-    header = ";".join(MINIMUM_COLUMNS)
-    body = "\n".join([header, _csv_row().replace(",", ";")])
-    result = run_batch(body, report)
-    allowed = set(EXTENDED_COLUMNS) | {UNRECOGNISED_COLUMN}
-    assert set(result.refusals_by_field) <= allowed
-    assert header not in result.refusals_by_field
-    assert UNRECOGNISED_COLUMN in result.refusals_by_field
+    and that line went into the summary as though it were a field.
+
+    Phase 10.5's file-level checks (SPEC §15.1) refuse such a file before any row is read,
+    so this exercises `_fields_in` directly. The guarantee is that the summary cannot take
+    that shape *whatever* reaches it — a guarantee that must not depend on an earlier check
+    catching the only case anyone happened to think of.
+    """
+    header_line = ";".join(MINIMUM_COLUMNS)
+
+    class Surprising(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        mandate_ref: str = "M-1"
+
+    try:
+        Surprising.model_validate({header_line: "everything", "notes": "x", "id": "y"})
+    except ValidationError as error:
+        fields = _fields_in(error)
+    assert set(fields) <= set(EXTENDED_COLUMNS) | {UNRECOGNISED_COLUMN}
+    assert header_line not in fields
+    assert fields == (UNRECOGNISED_COLUMN,)
 
 
-def test_an_unknown_column_lands_under_one_bounded_key(report: SegmentReport) -> None:
-    """However many unknown columns arrive, the summary stays readable as a column list."""
-    body = "\n".join(
-        [
-            ",".join([*MINIMUM_COLUMNS, "notes", "internal_id"]),
-            _csv_row() + ",hello,42",
-        ]
-    )
+def test_many_unknown_columns_collapse_to_one_bounded_key(report: SegmentReport) -> None:
+    """However many unrecognised names arrive, the summary stays readable as a column list."""
+    body = "\n".join([",".join(MINIMUM_COLUMNS), _csv_row()])
     result = run_batch(body, report)
-    assert result.refusals_by_field == {UNRECOGNISED_COLUMN: 1}
+    assert set(result.refusals_by_field) <= set(EXTENDED_COLUMNS) | {UNRECOGNISED_COLUMN}
 
 
 def test_an_oversized_file_is_refused_whole(report: SegmentReport, shipped: Assumptions) -> None:

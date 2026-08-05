@@ -678,6 +678,7 @@ NON_SIMULATING_ROUTES = {
     ("POST", "/recommend"),
     ("POST", "/recommend/batch"),
     ("GET", "/recommend/template"),
+    ("GET", "/recommend/mappings"),
 }
 
 # FastAPI's own.
@@ -837,3 +838,108 @@ def test_batch_answers_per_row_and_counts_its_refusals(client: TestClient) -> No
     assert body["rows_answered"] == 1
     assert body["rows_refused"] == 1
     assert body["refusals_by_field"] == {"bank_batch_cutoff_time": 1}
+
+
+# --- SPEC §15: the ingestion surface ------------------------------------------------------
+
+
+MAPPED_HEADER = (
+    "reference,channel,failure_code,failure_time,amount_in_paise,cap_in_paise,"
+    "attempt,notice_sent_at,prior_failures,first_attempt_time"
+)
+MAPPED_ROW = "M-1,upi,U30,10/03/2026 11:00,49900,150000,1,28/02/2026 09:00,0,"
+
+
+def test_mappings_are_listed_with_their_fingerprints(client: TestClient) -> None:
+    rows = client.get("/recommend/mappings").json()
+    example = next(row for row in rows if row["name"] == "example")
+    assert len(example["fingerprint"]) == 64
+    assert example["reason_codes"] > 0
+
+
+def test_a_mapped_upload_is_answered(client: TestClient) -> None:
+    response = client.post(
+        "/recommend/batch",
+        params={"mapping": "example"},
+        content=f"{MAPPED_HEADER}\n{MAPPED_ROW}\n",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rows_answered"] == 1
+    assert body["mapping_profile"] == "example"
+    assert body["recommendations"][0]["mapping_fingerprint"] == body["mapping_fingerprint"]
+
+
+def test_a_file_level_defect_refuses_the_whole_file_with_one_message(
+    client: TestClient,
+) -> None:
+    """SPEC §15.1: not the same defect reported once per row."""
+    body = MAPPED_HEADER.replace(",", ";") + "\n" + MAPPED_ROW.replace(",", ";") + "\n"
+    response = client.post("/recommend/batch", params={"mapping": "example"}, content=body)
+    assert response.status_code == 422
+    assert "semicolon-delimited" in response.json()["detail"]
+
+
+def test_a_header_only_file_is_refused_over_http(client: TestClient) -> None:
+    response = client.post(
+        "/recommend/batch", params={"mapping": "example"}, content=MAPPED_HEADER + "\n"
+    )
+    assert response.status_code == 422
+    assert "no data rows" in response.json()["detail"]
+
+
+def test_a_moved_mapping_is_refused_rather_than_answered(client: TestClient) -> None:
+    """SPEC §15.4, the same shape as expect_config on /segments and /trace."""
+    response = client.post(
+        "/recommend/batch",
+        params={"mapping": "example", "expect_mapping": "0" * 64},
+        content=f"{MAPPED_HEADER}\n{MAPPED_ROW}\n",
+    )
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "Nothing was answered" in detail
+    assert "different vocabulary" in detail
+
+
+def test_the_matching_mapping_is_not_refused(client: TestClient) -> None:
+    """The guard must not refuse the good case, or it gets routed around."""
+    rows = client.get("/recommend/mappings").json()
+    fingerprint = next(r for r in rows if r["name"] == "example")["fingerprint"]
+    response = client.post(
+        "/recommend/batch",
+        params={"mapping": "example", "expect_mapping": fingerprint},
+        content=f"{MAPPED_HEADER}\n{MAPPED_ROW}\n",
+    )
+    assert response.status_code == 200
+
+
+def test_expect_mapping_without_a_mapping_is_refused(client: TestClient) -> None:
+    response = client.post(
+        "/recommend/batch",
+        params={"expect_mapping": "0" * 64},
+        content=f"{MAPPED_HEADER}\n{MAPPED_ROW}\n",
+    )
+    assert response.status_code == 422
+    assert "no profile to compare" in response.json()["detail"]
+
+
+def test_an_unknown_mapping_names_what_is_available(client: TestClient) -> None:
+    response = client.post(
+        "/recommend/batch",
+        params={"mapping": "no-such-merchant"},
+        content=f"{MAPPED_HEADER}\n{MAPPED_ROW}\n",
+    )
+    assert response.status_code == 422
+    assert "example" in response.json()["detail"]
+
+
+def test_both_csv_tables_are_downloadable(client: TestClient) -> None:
+    params = {"mapping": "example", "format": "csv"}
+    body = f"{MAPPED_HEADER}\n{MAPPED_ROW}\n{MAPPED_ROW.replace('U30', 'MYSTERY')}\n"
+    answers = client.post("/recommend/batch", params={**params, "table": "answers"}, content=body)
+    refusals = client.post(
+        "/recommend/batch", params={**params, "table": "refusals"}, content=body
+    )
+    assert answers.status_code == refusals.status_code == 200
+    assert "# mapping_fingerprint:" in answers.text
+    assert "MYSTERY" in refusals.text

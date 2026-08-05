@@ -622,6 +622,91 @@ One answer per row. A bad row is refused on its own and the good rows still answ
 `refusals_by_field` counts them by column, ahead of the rows, so a partial refusal is not
 something you discover on line 4,000.
 
+**Batch answers are minimum-tier, always.** A CSV row cannot carry an attempt history, so
+`BankAware`, `SalaryAware` and `Blended` can never be selected from an upload. A batch that
+shows only `FixedSchedule` and `ReasonAware` is not telling you those two won — the other
+three were never eligible. Where one of them is the measured winner for a row's segment,
+that row says so and names the fields that would unlock it.
+
+---
+
+## Uploading your own export
+
+The dashboard's upload section takes the CSV your system already produces, in your own
+column names and your own failure codes, and answers it row by row.
+
+### Your file is checked before any row is read
+
+A problem with the *file* is reported once, naming it — not four thousand times, once per
+row. In order: encoding, delimiter, whether there is a header, whether the columns match,
+row count, and whether there are any rows at all.
+
+```
+the file looks semicolon-delimited, not comma-delimited: the header splits into
+11 fields on a semicolon and 1 on a comma. Nothing was read.
+```
+
+An empty file, a header with no rows, and a file whose header was stripped all **refuse**.
+Answering "0 rows" to a file that should have had 4,000 in it is a failure dressed as a
+success.
+
+Everything that varies row to row — a bad date, an unknown code, a missing conditional
+field — is still answered row by row.
+
+### Mapping profiles: your vocabulary, stored
+
+A profile in `config/merchants/<name>.yaml` maps your codes, rails, column names and date
+format onto the canonical ones. Name it in the request:
+
+```bash
+curl -s "localhost:8000/recommend/batch?mapping=example" --data-binary @failures.csv
+```
+
+See `config/merchants/example.yaml` for a worked one.
+
+**Profiles are files, not something you attach to an upload, and the UI will not let you
+edit one.** A mapping that can change per upload is a mapping you cannot compare between
+uploads: the same file answers differently on two days and nothing records why.
+
+**An unmapped value refuses its row.** No case-folding, no nearest match. `U31` does not
+become whatever `U30` meant, because a recommendation built on that guess looks exactly
+like a real one.
+
+### Two fingerprints, and being told when one moves
+
+Every answer carries `evidence_fingerprint` (the measurement it quotes) and
+`mapping_fingerprint` (the vocabulary it was read through). Those are the two things that
+decide the answer, so a file answered differently on two days is traceable to whichever
+moved.
+
+Pass `expect_mapping` and a change is refused rather than absorbed:
+
+```bash
+curl -s "localhost:8000/recommend/batch?mapping=example&expect_mapping=375fd14397dd..." \
+  --data-binary @failures.csv
+# 409: the mapping profile 'example' is not the one this file was expected to be read
+# through. Nothing was answered.
+```
+
+Same shape as `expect_config` on `/segments` and `/trace`, and for the same reason: a
+fingerprint nobody compares is decoration.
+
+### Getting the answers back out
+
+```bash
+# the answers, as CSV, with both fingerprints in the # header block
+curl -s "localhost:8000/recommend/batch?mapping=example&format=csv&table=answers" \
+  --data-binary @failures.csv
+
+# the refusals, carrying your own values back under the canonical column names
+curl -s "localhost:8000/recommend/batch?mapping=example&format=csv&table=refusals" \
+  --data-binary @failures.csv
+```
+
+The refusals table is a valid upload once you have corrected the offending cells — fix and
+resubmit it directly, rather than going back to your original file to work out which lines
+they were.
+
 ---
 
 ## The assumptions section
@@ -759,6 +844,9 @@ Be direct about these. They are what a competent CFO will ask.
 | Per-segment breakdown | `GET /segments` |
 | Recommend a retry for one real failure | `POST /recommend` |
 | The same for a CSV of failures | `GET /recommend/template` → `POST /recommend/batch` |
+| Upload your own export, in your vocabulary | `POST /recommend/batch?mapping=<name>` |
+| List stored mapping profiles | `GET /recommend/mappings` |
+| Be told if a mapping changed | add `&expect_mapping=<fingerprint>` |
 | Row-level trace, one seed only | `GET /trace?seed=N` |
 | The rest | `GET /assumptions`, `GET /strategies` |
 

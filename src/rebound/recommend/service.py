@@ -141,6 +141,11 @@ class Recommendation(BaseModel):
     selection_notes: tuple[str, ...] = ()
     caveats: tuple[str, ...]
     evidence_fingerprint: str = Field(min_length=1)
+    # SPEC §15.4. Echoed beside the evidence fingerprint so a recommendation can be traced
+    # to both of the things that decide it: the measurement that justified it, and the
+    # vocabulary the input was read through. `None` means no mapping was applied and the
+    # values arrived already canonical, which is the case for POST /recommend.
+    mapping_fingerprint: str | None = None
 
 
 class _Selection(BaseModel):
@@ -266,7 +271,9 @@ def _caveats(
     return tuple(caveats)
 
 
-def _hard_decline(failure: ObservedFailure, fingerprint: str) -> Recommendation:
+def _hard_decline(
+    failure: ObservedFailure, fingerprint: str, mapping_fingerprint: str | None = None
+) -> Recommendation:
     """SPEC §1.3/§14.5: no time at all, and no lift quoted beside a chain that has ended."""
     return Recommendation(
         mandate_ref=failure.mandate_ref,
@@ -280,6 +287,7 @@ def _hard_decline(failure: ObservedFailure, fingerprint: str) -> Recommendation:
         availability=availability(failure),
         caveats=(CAVEAT_SIMULATED,),
         evidence_fingerprint=fingerprint,
+        mapping_fingerprint=mapping_fingerprint,
     )
 
 
@@ -287,11 +295,12 @@ def recommend(
     failure: ObservedFailure,
     report: SegmentReport,
     assumptions: Assumptions | None = None,
+    mapping_fingerprint: str | None = None,
 ) -> Recommendation:
     """One failure in, one time out. Deterministic: nothing here reads the wall clock."""
     assumptions = assumptions or load_assumptions()
     if terminates_retry_chain(failure.reason_code):
-        return _hard_decline(failure, report.config_fingerprint)
+        return _hard_decline(failure, report.config_fingerprint, mapping_fingerprint)
     selection = _select(failure, report, assumptions)
     history = build_history(failure)
     strategy: RetryStrategy = _STRATEGIES[selection.strategy](assumptions)
@@ -303,7 +312,9 @@ def recommend(
         # SPEC §14.10: bound to the failure, never to the wall clock.
         clock=failure.failed_at,
     )
-    return _answer(failure, selection, proposals, history, report, assumptions)
+    return _answer(
+        failure, selection, proposals, history, report, assumptions, mapping_fingerprint
+    )
 
 
 def _answer(
@@ -313,9 +324,10 @@ def _answer(
     history: list[DebitAttempt],
     report: SegmentReport,
     assumptions: Assumptions,
+    mapping_fingerprint: str | None = None,
 ) -> Recommendation:
     """Put the proposal through the guard (SPEC §14.5) and assemble the response."""
-    common = _common_fields(failure, selection, report)
+    common = _common_fields(failure, selection, report, mapping_fingerprint)
     if not proposals:
         return Recommendation(
             status=Status.NO_PROPOSAL,
@@ -355,7 +367,10 @@ def _answer(
 
 
 def _common_fields(
-    failure: ObservedFailure, selection: _Selection, report: SegmentReport
+    failure: ObservedFailure,
+    selection: _Selection,
+    report: SegmentReport,
+    mapping_fingerprint: str | None,
 ) -> dict[str, object]:
     """The fields every answer carries, whatever the outcome — including the refusals."""
     return {
@@ -370,6 +385,7 @@ def _common_fields(
         "availability": availability(failure),
         "selection_notes": selection.notes,
         "evidence_fingerprint": report.config_fingerprint,
+        "mapping_fingerprint": mapping_fingerprint,
     }
 
 

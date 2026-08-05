@@ -1,0 +1,56 @@
+# A worked example of a mapping profile (SPEC §15.3), and the fixture the tests read.
+#
+# A profile is one merchant's vocabulary: the codes their gateway emits, the names their
+# export gives its columns, the format their dates are in. It lives here rather than being
+# uploaded with the file, because a mapping supplied per upload is unversioned by
+# construction -- the same file answers differently on two days and nothing records what
+# moved.
+#
+# `description` is provenance and is deliberately NOT part of the fingerprint. Editing this
+# comment must not invalidate a caller's expect_mapping comparison, or the comparison
+# becomes noise and stops being read.
+#
+# Unmapped values are refused, never guessed. There is no case-folding fallback and no
+# fuzzy match: `U31` does not become whatever `U30` meant.
+
+description: >-
+  Worked example. Not a real merchant, and not a claim about what any gateway's codes mean
+  -- a real profile is written with the merchant's own gateway documentation open.
+
+reason_codes:
+  U30: INSUFFICIENT_FUNDS
+  U31: BANK_UNAVAILABLE
+  "insufficient funds": INSUFFICIENT_FUNDS
+  "insufficient balance": INSUFFICIENT_FUNDS
+  "technical decline": TECHNICAL_DECLINE
+  "bank down": BANK_UNAVAILABLE
+  "limit exceeded": LIMIT_EXCEEDED
+  "mandate cancelled": MANDATE_REVOKED
+  "mandate expired": MANDATE_EXPIRED
+  "account frozen": ACCOUNT_FROZEN
+
+rails:
+  upi: UPI_AUTOPAY
+  autopay: UPI_AUTOPAY
+  nach: ENACH
+  enach: ENACH
+  card: CARD_EMANDATE
+
+# Merchant's own export headers, renamed onto the canonical columns of SPEC §14.9. Applied
+# before the header check, so the merchant sends the file their system produced.
+columns:
+  reference: mandate_ref
+  channel: rail
+  failure_code: reason_code
+  failure_time: failed_at
+  amount_in_paise: amount_paise
+  cap_in_paise: mandate_cap_paise
+  attempt: attempt_number
+  notice_sent_at: notified_at
+  prior_failures: prior_failure_count
+  first_attempt_time: original_attempt_at
+
+# Their exports carry local time with no offset, so one is declared. SPEC §14.2 accepts
+# only aware datetimes and guessing the offset would move every recommendation by hours.
+datetime_format: "%d/%m/%Y %H:%M"
+timezone_offset_hours: 5.5
