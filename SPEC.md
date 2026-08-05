@@ -498,7 +498,7 @@ Fields are split into a **minimum set** that serves `FixedSchedule` and `ReasonA
 | `attempt_number` | Which attempt in this cycle. Drives the baseline offset and the attempt cap. |
 | `original_attempt_at` | Required when `attempt_number > 1`; every strategy schedules from the *original* attempt, not the last one. At `attempt_number == 1` it is `failed_at`. |
 | `prior_failure_count` | Failed cycles for this mandate in the **preceding 12 months, excluding this one**. Used only to place the failure in a failure-frequency segment (§14.6). The horizon must match §12's or the band is wrong, so the field is defined by that horizon rather than by "how many you remember". |
-| `bank_batch_cutoff_time` | **eNACH only.** The presentation-window rule needs it. The minimum set is rail-dependent in exactly this one place. |
+| `bank_batch_cutoff_time` | **eNACH only.** The presentation-window rule needs it. The minimum set is rail-dependent in exactly this one place. **A bank-local wall-clock time carrying no offset** — `02:00:00`, never `02:00:00Z` or `02:00:00+05:30`. A cutoff is a time of day at the bank, not an instant, and the rule compares it against a naive wall clock. An offset is refused rather than dropped or converted: this rule decides which *day* a debit is presented on, so reinterpreting it silently could move a real debit by up to a day. |
 
 **Extended set** — everything above, plus:
 

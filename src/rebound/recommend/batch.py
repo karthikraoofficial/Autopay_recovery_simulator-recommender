@@ -285,8 +285,12 @@ def run_batch(
                 kind=RefusalKind.UNREADABLE_ROW,
                 mandate_ref=_mandate_ref(row),
                 detail=(
-                    f"this row could not be processed: {type(exc).__name__}: {exc}. The "
-                    "other rows in the file were answered normally."
+                    "This row was not answered because rebound failed while processing "
+                    "it. THIS IS A DEFECT IN REBOUND, NOT A PROBLEM WITH YOUR DATA: there "
+                    "is nothing to correct in this row, and re-sending it unchanged will "
+                    "fail the same way until the defect is fixed. The other rows in the "
+                    f"file were answered normally. For the report: {type(exc).__name__}: "
+                    f"{exc}"
                 ),
                 input=_clean(row),
             )

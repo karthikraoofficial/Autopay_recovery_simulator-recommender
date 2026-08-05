@@ -73,7 +73,14 @@ class ObservedFailure(BaseModel):
     # of the definition because SPEC §12's frequency bands are over a 12-month run.
     prior_failure_count: int = Field(ge=0)
     original_attempt_at: AwareDatetime | None = None
-    bank_batch_cutoff_time: time | None = None
+    bank_batch_cutoff_time: time | None = Field(
+        default=None,
+        description=(
+            "eNACH only. The bank's own wall-clock cutoff, with NO timezone offset — "
+            "'02:00:00', never '02:00:00Z' or '02:00:00+05:30'. It is a time of day at the "
+            "bank, not an instant."
+        ),
+    )
 
     # --- extended set ---------------------------------------------------------------
     bank_id: str | None = Field(default=None, min_length=1)
@@ -96,6 +103,31 @@ class ObservedFailure(BaseModel):
             raise ValueError(
                 f"bank_batch_cutoff_time is required on {self.rail.value}: the "
                 "presentation-window rule cannot be applied without it"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def the_batch_cutoff_carries_no_offset(self) -> ObservedFailure:
+        """A batch cutoff is a wall-clock time at the bank, not an instant.
+
+        `time` accepts an offset — pydantic parses `02:00:00Z` to an *aware* time — and the
+        presentation-window rule compares it against a deliberately naive wall-clock time,
+        which Python refuses to do. That surfaced as a `TypeError` reaching the caller as a
+        500 (see the phase 10.5 notes in SPEC §15.1).
+
+        Refused rather than normalised. Dropping the offset, or converting to UTC, would
+        move the cutoff by up to fourteen hours — and this rule decides which *day* a real
+        debit is presented on. A compliance decision must not turn on a silent
+        reinterpretation of the merchant's input.
+        """
+        cutoff = self.bank_batch_cutoff_time
+        if cutoff is not None and cutoff.tzinfo is not None:
+            raise ValueError(
+                f"bank_batch_cutoff_time must carry no timezone offset; got {cutoff!s}. A "
+                "batch cutoff is the bank's own wall-clock time - write it as '02:00:00', "
+                "not '02:00:00Z' or '02:00:00+05:30'. It is refused rather than "
+                "reinterpreted because dropping or converting an offset would move the "
+                "presentation-window decision by up to a day."
             )
         return self
 

@@ -19,7 +19,13 @@ from rebound.recommend import evidence as ev
 from rebound.recommend.batch import BatchTooLargeError, RefusalKind, run_batch
 from rebound.recommend.csv_out import Table, to_csv
 from rebound.recommend.ingest import FIELD_SIZE_LIMIT, FileRefusalError
-from rebound.recommend.inputs import EXTENDED_COLUMNS, MINIMUM_COLUMNS, required_columns
+from rebound.recommend.inputs import (
+    EXTENDED_COLUMNS,
+    MINIMUM_COLUMNS,
+    AttemptRecord,
+    ObservedFailure,
+    required_columns,
+)
 from rebound.recommend.mapping import (
     MappingError,
     MerchantMapping,
@@ -401,3 +407,90 @@ def test_a_valid_file_is_unaffected_by_any_of_this(report: SegmentReport) -> Non
     """The guard converts unexpected failures; it must not have relaxed a single check."""
     result = run_batch(body(HEADER, ROW), report)
     assert (result.rows_answered, result.rows_refused) == (1, 0)
+
+
+# --- a batch cutoff is a wall clock, not an instant ---------------------------------------
+
+
+def _enach_row(cutoff: str) -> bytes:
+    return body(
+        HEADER,
+        "SIM-2,ENACH,BANK_UNAVAILABLE,2026-08-22T17:00:00+00:00,240000,1200000,1,"
+        f"2026-08-20T10:00:00+00:00,0,2026-08-22T17:00:00+00:00,{cutoff}",
+    )
+
+
+@pytest.mark.parametrize("cutoff", ["02:00:00Z", "02:00:00+05:30"])
+def test_an_offset_on_the_batch_cutoff_is_refused_by_name(
+    cutoff: str, report: SegmentReport
+) -> None:
+    """The 500 this replaced: pydantic parses `02:00:00Z` to an *aware* time, and the
+    presentation-window rule compares it against a deliberately naive wall clock, which
+    Python refuses to do — `TypeError` all the way out to a text/plain 500."""
+    result = run_batch(_enach_row(cutoff), report)
+    assert result.rows_answered == 0
+    refusal = result.refusals[0]
+    assert refusal.kind is RefusalKind.FIELD, "a bad value is a field refusal, not a crash"
+    assert "bank_batch_cutoff_time" in refusal.detail
+    assert "wall-clock" in refusal.detail
+    assert result.refusals_by_field == {"bank_batch_cutoff_time": 1}
+
+
+def test_a_wall_clock_batch_cutoff_still_works(report: SegmentReport) -> None:
+    """The fix must not have made the field unusable."""
+    result = run_batch(_enach_row("02:00:00"), report)
+    assert result.rows_answered == 1
+    assert result.recommendations[0].retry_at is not None
+
+
+def test_the_offset_is_refused_rather_than_normalised(report: SegmentReport) -> None:
+    """Dropping the offset or converting to UTC would move the cutoff by up to fourteen
+    hours, and this rule decides which *day* a debit is presented on."""
+    refused = run_batch(_enach_row("02:00:00+05:30"), report)
+    assert refused.rows_answered == 0
+    # If it were normalised to 02:00 or to 20:30 the row would answer, with a retry time
+    # that turned on our reinterpretation rather than on what the merchant sent.
+    assert "reinterpreted" in refused.refusals[0].detail
+
+
+def test_no_other_merchant_supplied_field_has_the_same_shape() -> None:
+    """The audit, kept as a test so a future field of this shape has to be decided about.
+
+    Any bare `time` or `date` a merchant supplies can arrive aware or naive, and anything
+    the guard compares it against is one or the other. `AwareDatetime` fields are safe by
+    construction — pydantic refuses a naive one — so the risk is confined to bare temporal
+    types. Today there is exactly one, and it is constrained above.
+    """
+    from datetime import date, time
+
+    bare: list[str] = []
+    for model in (ObservedFailure, AttemptRecord):
+        for name, field in model.model_fields.items():
+            annotation = str(field.annotation)
+            if "datetime.time" in annotation or "datetime.date" in annotation:
+                bare.append(f"{model.__name__}.{name}")
+    assert bare == ["ObservedFailure.bank_batch_cutoff_time"], (
+        f"new bare time/date field(s) {bare}: decide explicitly whether each may carry an "
+        "offset, and validate it, or it will reach a naive comparison as a TypeError."
+    )
+    assert date is not None and time is not None  # imported for the reader, not the check
+
+
+def test_an_unexpected_row_failure_does_not_blame_the_merchants_data(
+    report: SegmentReport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merchant reading 'TypeError' assumes their file is wrong and goes looking for a
+    problem that is not there."""
+    from rebound.recommend import batch as batch_module
+
+    def explode(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("naive/aware comparison")
+
+    monkeypatch.setattr(batch_module, "recommend", explode)
+    refusal = run_batch(body(HEADER, ROW), report).refusals[0]
+    assert refusal.kind is RefusalKind.UNREADABLE_ROW
+    assert "DEFECT IN REBOUND" in refusal.detail
+    assert "nothing to correct in this row" in refusal.detail
+    assert "until the defect is fixed" in refusal.detail
+    # The exception is still carried, for the bug report rather than for the merchant.
+    assert "RuntimeError" in refusal.detail

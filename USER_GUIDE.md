@@ -576,6 +576,13 @@ The **minimum set** is the nine fields above (plus `original_attempt_at` once
 `attempt_number` is 2 or more, and `bank_batch_cutoff_time` on eNACH). It serves
 `FixedSchedule` and `ReasonAware`.
 
+> **`bank_batch_cutoff_time` takes no timezone offset.** Write `02:00:00`, not `02:00:00Z`
+> and not `02:00:00+05:30`. A batch cutoff is a wall-clock time at the bank — "we clear at
+> 2am" — rather than an instant, and the presentation-window rule compares it against a
+> naive wall clock. An offset is refused by name rather than dropped or converted to UTC,
+> because this is the rule that decides which *day* a debit is presented on: silently
+> reinterpreting it could move a real debit by up to a day.
+
 The **extended set** adds `bank_id` and `attempt_history` — this cycle's attempts with
 their times, amounts, outcomes and reason codes. It additionally serves `BankAware`,
 `SalaryAware` and `Blended`.

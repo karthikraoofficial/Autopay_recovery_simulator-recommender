@@ -352,7 +352,20 @@ def create_app() -> FastAPI:
 
     @app.get("/recommend/template", response_class=PlainTextResponse)
     def get_template(extended: bool = False) -> PlainTextResponse:
-        """The batch header row, derived from the tier definition in `recommend/inputs.py`."""
+        """The batch header row, derived from the tier definition in `recommend/inputs.py`.
+
+        Column notes that are not obvious from the name, and that a merchant filling this
+        in has no other way to learn:
+
+        - `bank_batch_cutoff_time` (eNACH only) is the bank's **wall-clock** cutoff and
+          carries **no timezone offset**: `02:00:00`, never `02:00:00Z`. It is a time of day
+          at the bank rather than an instant, and an offset is refused rather than dropped,
+          because this rule decides which day a debit is presented on.
+        - `notified_at`, `failed_at` and `original_attempt_at` are the opposite: full
+          timestamps that **must** carry an offset, because they are instants.
+        - `prior_failure_count` is failed cycles in the preceding 12 months, excluding this
+          one -- the horizon matters, because it places the row in a frequency band.
+        """
         name = "extended" if extended else "minimum"
         return PlainTextResponse(
             template(extended=extended),
