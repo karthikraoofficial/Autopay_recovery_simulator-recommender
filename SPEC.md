@@ -650,6 +650,14 @@ A profile may declare:
 | `datetime_format` | `strptime` format for the datetime columns. ISO-8601 is assumed when absent. |
 | `timezone` | UTC offset applied to datetimes that carry none. Required if `datetime_format` produces naive times, because §14.2 accepts only aware ones and inventing an offset would move the recommendation by hours. |
 
+**The profile deliberately covers four things, not one.** The brief that opened this phase named reason-code mapping, and the scope was widened during the build with that noted. It is recorded here so it is not narrowed later by someone reading the original brief and taking the other three for scope creep:
+
+- **Column names** must be in it, or §15.1's header check refuses every real merchant export until someone renames the headers by hand. A file-level check that rejects every genuine file is a check that gets routed around.
+- **Rails** are the same shape of problem as reason codes — a merchant writes `nach`, the enum says `ENACH` — and leaving them out would refuse rows for the one vocabulary the profile could not express.
+- **Datetime format** must be in it because §14.2 accepts only timezone-aware ISO-8601, and a merchant exporting `10/03/2026 11:00` would otherwise have every row refused for a defect the profile exists to absorb. The timezone comes with it: a naive time and no declared offset is a refusal, because guessing one moves every recommendation by hours.
+
+All four are the same operation — the merchant's vocabulary translated to the canonical one, under version control, fingerprinted. What the profile must **never** do is decide anything: it renames and reformats, and it resolves nothing it was not told.
+
 **Unmapped values still refuse.** A code the profile does not know is a row refusal naming the value and the profile that lacked it — never passed through, never guessed at by case-folding or fuzzy match. A mapping that quietly resolved `U31` to whatever `U30` meant would be inventing the merchant's data.
 
 Every profile is loaded and validated against the enums at request time, so a profile mapping to a code that does not exist fails when it is used rather than when someone reads it.
