@@ -683,3 +683,42 @@ One page in the existing dashboard: pick a stored profile, drop a file, see eith
 It shows both fingerprints beside the result. It does **not** offer to edit a mapping: a profile edited in a browser is a mapping supplied per upload wearing a different hat, and §15.3 exists to prevent that.
 
 The §14.7 caveats travel with every row, and the §11 note that batch is minimum-tier by construction is shown once above the table — a page listing only `FixedSchedule` and `ReasonAware` must not read as those being the strategies that won.
+
+---
+
+## 16. Operational surface
+
+One route, `GET /health`, and one rule: **a process that is not what you think it is must say so itself.**
+
+This exists because twice a server left running across a phase boundary was diagnosed from *which paths returned 404*. That evidence points at routing, at the proxy, or at the front end, and it was wrong both times — the running process had the answer the whole time and no way to give it.
+
+### 16.1 What it reports
+
+| Field | Read | Why |
+|---|---|---|
+| `commit` | **Once, at import** | The commit the process was *started from*, which is the code it is running. A process whose tree has moved on underneath it must keep reporting what it booted with, or it cannot be caught being stale — which is the entire point. `null` where git cannot answer. |
+| `dirty` | Once, at import | Uncommitted changes in that tree. A matching commit with `dirty: true` does not prove the running code matches. |
+| `started_at` | Once, at import | Answers "is this process older than my last change" directly. |
+| `config_fingerprint` | **Per request** | `load_assumptions()` re-reads the file on every call, so editing `assumptions.yaml` takes effect without a restart. A boot-time value would be a lie about what the next request will use. |
+
+**A commit, not a version string.** `0.1.0` means something only to someone who already knows which version is current, and it moves when somebody remembers to bump it. A commit is checkable against the tree in front of you with no prior knowledge, which is the property that matters to whoever is confused.
+
+Nothing here is a result. These fields never enter an output hash and nothing reconciles against them — the same standing as `exported_at` in §13.2.
+
+### 16.2 The dashboard compares, and says so on the page
+
+The bundle is stamped with the commit it was built from (`vite.config.js`, at build time). The page reads `/health` and compares. On a mismatch it shows a **banner**, with both commits and what to do about it.
+
+- **On the page, not in the console.** A console warning is found by someone who is already debugging. The person who needs this is the one wondering why a button does nothing.
+- **Silent when they agree.** A banner that is always there is furniture and stops being read before the day it matters.
+- **`unknown` is not `ok`.** Where either side cannot be established the page says it cannot tell, rather than passing. A check that quietly passes when it cannot see is read as a guarantee and is worse than no check.
+- **A `/health` that 404s is itself the strongest evidence of a stale process**, since the route exists in every build that contains the banner. It is reported as a mismatch, not as an unknown.
+- The banner sits inside its own error boundary (§15.6's rule): a check that blanked the page it was warning about would be worse than the problem.
+
+### 16.3 `--reload` reduces the problem; it does not solve it
+
+The documented dev command uses it. `app = create_app()` runs at import, so without it every added route needs a manual restart, and its absence presents as a `404` that looks like a routing bug.
+
+**It is not a guarantee, and must not be documented as one.** The watcher lives in a supervisor process; if that supervisor is killed or detached, the worker carries on serving whatever it last imported and reports nothing. That was observed while building §16 — a server running with `--reload` ignored a touched file for thirty seconds and thereafter.
+
+Which is the argument for §16.1 rather than against it. A convention that usually works is exactly the kind of thing that produces a rare, confusing failure, and the check exists because the failure is otherwise diagnosed from the wrong evidence.

@@ -26,13 +26,28 @@ APP = WEB / "src" / "App.jsx"
 INGEST = WEB / "src" / "Ingest.jsx"
 
 
+def _boundary_around(source: str, element: str) -> str:
+    """The body of the `<ErrorBoundary>` that wraps `element`.
+
+    There is more than one boundary on the page, so this finds the nearest opening tag
+    before the element and the nearest closing tag after it, rather than the first of each.
+    """
+    at = source.index(element)
+    opening = source.rindex("<ErrorBoundary", 0, at)
+    closing = source.index("</ErrorBoundary>", at)
+    return source[opening:closing]
+
+
 def test_the_upload_section_is_inside_an_error_boundary() -> None:
     """The wiring the JS tests cannot see. `<Ingest />` unwrapped is the original defect."""
+    assert "<Ingest />" in _boundary_around(APP.read_text(encoding="utf-8"), "<Ingest />")
+
+
+def test_the_build_check_is_inside_an_error_boundary() -> None:
+    """SPEC §16.2: a check that blanked the page it was warning about would be worse than
+    the problem it reports."""
     source = APP.read_text(encoding="utf-8")
-    boundary = source.index("<ErrorBoundary")
-    ingest = source.index("<Ingest />")
-    closing = source.index("</ErrorBoundary>")
-    assert boundary < ingest < closing, "Ingest must render inside the boundary"
+    assert "<BuildBanner />" in _boundary_around(source, "<BuildBanner />")
 
 
 def test_the_simulator_sections_are_outside_that_boundary() -> None:
@@ -41,8 +56,7 @@ def test_the_simulator_sections_are_outside_that_boundary() -> None:
     If the boundary ever grows to wrap the result or the assumptions panel, a failure in
     the upload section would blank them again — the exact outcome it was added to prevent.
     """
-    source = APP.read_text(encoding="utf-8")
-    contained = source[source.index("<ErrorBoundary") : source.index("</ErrorBoundary>")]
+    contained = _boundary_around(APP.read_text(encoding="utf-8"), "<Ingest />")
     for section in ("<Inputs", "<Result", "<Downloads", "<Assumptions"):
         assert section not in contained, f"{section} must not be inside the upload boundary"
 

@@ -20,7 +20,7 @@ Two processes. From the repo root:
 
 ```bash
 # terminal 1 — the simulation API
-.venv/Scripts/python.exe -m uvicorn rebound.api.app:app --port 8000
+.venv/Scripts/python.exe -m uvicorn rebound.api.app:app --port 8000 --reload
 
 # terminal 2 — the dashboard
 cd web && npm run dev
@@ -29,6 +29,30 @@ cd web && npm run dev
 Then open **http://localhost:5173**.
 
 > Use `localhost`, not `127.0.0.1`. Vite binds IPv6 here and `127.0.0.1:5173` is refused.
+
+> **Use `--reload`, and do not trust it.** The app is constructed when the module is
+> imported, so without it a server started before a change keeps serving the old code —
+> including old routes. A feature added since it started then returns `404`, which looks
+> like a routing or proxy bug and is not one. This has cost two debugging sessions.
+>
+> `--reload` usually picks changes up. It is not a guarantee: its watcher runs in a
+> supervisor process, and if that supervisor is killed or detached the worker keeps serving
+> whatever it last imported, silently. That was observed while building this check — a
+> server with `--reload` on ignored a changed file for thirty seconds and indefinitely
+> after. So the flag reduces the problem and the banner below is what actually catches it.
+>
+> The page now catches it for you: if the API is running a different commit from the one
+> the page was built from, a red banner says so, with both commits and what to do. You can
+> also ask directly:
+>
+> ```bash
+> curl -s localhost:8000/health
+> # {"commit":"b70fbe7c…","dirty":true,"started_at":"…","config_fingerprint":"c0f6aba3…"}
+> ```
+>
+> `commit` is the commit the process **started from**, read once at import — that is what
+> makes it able to catch itself being stale. `config_fingerprint` is read per request,
+> because editing `assumptions.yaml` takes effect without a restart.
 
 The assumptions section loads immediately, as does an estimate of what each run would cost.
 Nothing is simulated until you press a Run button, and both runs then execute in the
@@ -838,6 +862,7 @@ Be direct about these. They are what a competent CFO will ask.
 | Row-level trace of one seed | `GET /trace?seed=N` (JSON) or `&format=csv&table=attempts` |
 | Check nothing broke | `pytest -q` |
 | API docs | http://localhost:8000/docs |
+| Check the API isn't stale | `GET /health` — commit + config fingerprint |
 | Price a run without running it | `POST /simulate/estimate` |
 | Start a run / poll it | `POST /simulate/jobs` → `GET /simulate/jobs/{id}` |
 | Run synchronously (small books only) | `POST /simulate` |

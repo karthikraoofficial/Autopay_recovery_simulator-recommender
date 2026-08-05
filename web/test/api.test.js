@@ -122,3 +122,69 @@ describe("ErrorBoundary", () => {
     assert.ok(!tree.includes("the upload section"), "the failed children must not be rendered");
   });
 });
+
+// --- the stale-process check --------------------------------------------------------------
+//
+// The comparison is a pure function so its states can be tested without a browser. What
+// matters most is the "unknown" case: a check that quietly reports OK when it cannot see is
+// read as a guarantee, and would have been just as useless as no check at all.
+
+import { compareBuild, loadHealth } from "../src/api.js";
+
+const A = "b70fbe7c3b1c7b0a37b8c25281aa97ed704e1d43";
+const B = "0123456789abcdef0123456789abcdef01234567";
+
+describe("compareBuild", () => {
+  it("is quiet when the API is on the page's commit", () => {
+    assert.equal(compareBuild({ commit: A, dirty: false }, A).state, "ok");
+  });
+
+  it("flags a mismatch and names both commits", () => {
+    const result = compareBuild({ commit: B, dirty: false }, A);
+    assert.equal(result.state, "mismatch");
+    assert.match(result.message, /b70fbe7c3b1c/);
+    assert.match(result.message, /0123456789ab/);
+  });
+
+  it("tells the reader what to do about a mismatch", () => {
+    // The message is the whole product here: this is read by someone who does not yet know
+    // that a stale process is a thing that happens.
+    assert.match(compareBuild({ commit: B }, A).message, /restart uvicorn/i);
+    assert.match(compareBuild({ commit: B }, A).message, /404/);
+  });
+
+  it("says unknown rather than ok when either side cannot be established", () => {
+    assert.equal(compareBuild({ commit: null }, A).state, "unknown");
+    assert.equal(compareBuild({ commit: A }, null).state, "unknown");
+    assert.equal(compareBuild(null, A).state, "unknown");
+    assert.equal(compareBuild(undefined, undefined).state, "unknown");
+  });
+
+  it("does not claim a match proves anything when the API tree is dirty", () => {
+    const result = compareBuild({ commit: A, dirty: true }, A);
+    assert.equal(result.state, "dirty");
+    assert.match(result.message, /do not prove/i);
+  });
+});
+
+describe("loadHealth", () => {
+  it("reads a health payload", async () => {
+    const { health, error } = await loadHealth("/api/health", respond(200, { commit: A }));
+    assert.equal(health.commit, A);
+    assert.equal(error, null);
+  });
+
+  it("treats a missing /health as the strongest evidence of a stale process", async () => {
+    const { health, error } = await loadHealth("/api/health", respond(404, { detail: "Not Found" }));
+    assert.equal(health, null);
+    assert.match(error, /predates this check|restart uvicorn/i);
+  });
+
+  it("never throws", async () => {
+    for (const impl of [respond(500, { detail: "boom" }), async () => { throw new TypeError("x"); }]) {
+      const result = await loadHealth("/api/health", impl);
+      assert.equal(result.health, null);
+      assert.ok(result.error);
+    }
+  });
+});

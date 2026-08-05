@@ -670,6 +670,8 @@ NON_SIMULATING_ROUTES = {
     ("GET", "/strategies"),
     ("GET", "/simulate/jobs/{job_id}"),
     ("POST", "/simulate/estimate"),
+    # Reports what this process is, and runs nothing. SPEC §16.
+    ("GET", "/health"),
     # SPEC §14. These quote a recorded measurement rather than deriving an artifact from a
     # live run, so there is no headline to carry an expect_config against. The equivalent
     # check is inside the service: `load_evidence` refuses an artefact whose
@@ -943,3 +945,39 @@ def test_both_csv_tables_are_downloadable(client: TestClient) -> None:
     assert answers.status_code == refusals.status_code == 200
     assert "# mapping_fingerprint:" in answers.text
     assert "MYSTERY" in refusals.text
+
+
+# --- /health: a stale process announces itself -------------------------------------------
+
+
+def test_health_reports_the_commit_the_process_was_started_from(client: TestClient) -> None:
+    """A version string needs someone to already know which version is current. A commit
+    is checkable against the tree in front of you."""
+    body = client.get("/health").json()
+    assert body["commit"] is None or len(body["commit"]) == 40
+    assert body["started_at"]
+
+
+def test_health_reports_the_config_the_next_request_would_use(client: TestClient) -> None:
+    """Per request, not at import: `load_assumptions()` re-reads the file, so editing
+    assumptions.yaml takes effect without a restart and a boot-time value would be a lie."""
+    from rebound.config import load_assumptions
+
+    assert client.get("/health").json()["config_fingerprint"] == load_assumptions().fingerprint()
+
+
+def test_the_commit_is_captured_once_rather_than_per_request(client: TestClient) -> None:
+    """It describes the code this process is running, not the code on disk. A process whose
+    tree has moved on underneath it must keep reporting what it booted with, or it cannot be
+    caught being stale -- which is the entire purpose."""
+    from rebound.api import health as health_module
+
+    assert client.get("/health").json()["commit"] == health_module.COMMIT
+
+
+def test_health_survives_git_being_unavailable() -> None:
+    """A health endpoint that fails on an unusual checkout tells you nothing at the moment
+    you most need it."""
+    from rebound.api.health import _git
+
+    assert _git("not-a-real-git-subcommand") is None

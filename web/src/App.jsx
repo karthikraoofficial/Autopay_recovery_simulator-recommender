@@ -4,6 +4,7 @@ import Assumptions from "./Assumptions.jsx";
 import Downloads from "./Downloads.jsx";
 import Ingest from "./Ingest.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
+import BuildBanner from "./BuildBanner.jsx";
 import { getJson } from "./api.js";
 import { duration, inr, pct } from "./format.js";
 
@@ -423,6 +424,12 @@ export default function App() {
 
   return (
     <main>
+      {/* Above everything, inside its own boundary: a check that blanks the page it is
+          warning you about would be worse than the problem. */}
+      <ErrorBoundary section="The build check">
+        <BuildBanner />
+      </ErrorBoundary>
+
       <h1>rebound</h1>
       <p className="lede">
         A simulator for recurring-payment retry strategies on Indian mandate rails. Every number below is produced by a

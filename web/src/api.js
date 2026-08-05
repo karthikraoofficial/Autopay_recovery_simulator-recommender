@@ -65,3 +65,60 @@ export async function loadMappings(url, fetchImpl = fetch) {
     return { mappings: [], error: /HTTP 404|Not Found/i.test(message) ? STALE_API : message };
   }
 }
+
+/**
+ * The API's own account of itself, or an explanation. Never throws.
+ */
+export async function loadHealth(url, fetchImpl = fetch) {
+  try {
+    const body = await getJson(url, undefined, fetchImpl);
+    return { health: body && typeof body === "object" ? body : null, error: null };
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    return {
+      health: null,
+      error: /HTTP 404|Not Found/i.test(message)
+        ? "The API has no /health route, which means it predates this check entirely. Restart uvicorn."
+        : message,
+    };
+  }
+}
+
+/**
+ * Whether the API is running the code this page was built from.
+ *
+ * A pure comparison, kept out of the component so the states can be tested without a
+ * browser. It reports "unknown" rather than "ok" when either side cannot be established:
+ * a check that quietly passes when it cannot see is worse than no check, because it is
+ * read as a guarantee.
+ */
+export function compareBuild(apiHealth, buildCommit) {
+  const apiCommit = apiHealth?.commit ?? null;
+  if (!buildCommit || !apiCommit) {
+    return {
+      state: "unknown",
+      message:
+        "Cannot tell whether the API is running this page's code: " +
+        (buildCommit ? "the API did not report a commit." : "this page has no build commit."),
+    };
+  }
+  if (apiCommit !== buildCommit) {
+    return {
+      state: "mismatch",
+      message:
+        `The API is running commit ${apiCommit.slice(0, 12)}, but this page was built ` +
+        `from ${buildCommit.slice(0, 12)}. Routes added since the API started will return ` +
+        `404 and features will appear broken. Restart uvicorn (use --reload to stop this ` +
+        `recurring); rebuild the page if it is the one that is behind.`,
+    };
+  }
+  if (apiHealth.dirty) {
+    return {
+      state: "dirty",
+      message:
+        `The API is on this page's commit ${apiCommit.slice(0, 12)}, but its working tree ` +
+        `has uncommitted changes, so matching commits do not prove the running code matches.`,
+    };
+  }
+  return { state: "ok", message: `API and page are both on ${apiCommit.slice(0, 12)}.` };
+}

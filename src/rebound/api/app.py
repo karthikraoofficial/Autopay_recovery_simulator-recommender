@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from rebound.api.health import Health, health
 from rebound.api.inputs import (
     BookSizeTooLargeError,
     FailureMix,
@@ -432,6 +433,13 @@ def create_app() -> FastAPI:
                 },
             )
         return result
+
+    @app.get("/health", response_model=Health)
+    def get_health() -> Health:
+        """What this process is: the commit it was started from, and the config it would
+        use next. Exists so a stale process announces itself rather than being inferred
+        from which paths return 404, which has pointed at the wrong thing twice."""
+        return health()
 
     @app.get("/assumptions", response_model=AssumptionsView)
     def get_assumptions() -> AssumptionsView:

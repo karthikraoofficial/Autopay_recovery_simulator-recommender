@@ -433,3 +433,21 @@ code {
 .ingest input[type="file"] {
   padding: 0.35rem 0;
 }
+
+/* The stale-process warning. Loud on purpose: it is shown only when something is actually
+   wrong, and the reader is usually someone who does not yet know that. */
+.build-banner {
+  border: 2px solid #b00020;
+  background: #fff4f4;
+  color: #5c0011;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1.25rem;
+  line-height: 1.45;
+}
+.build-banner.dirty,
+.build-banner.unknown {
+  border-color: #a86400;
+  background: #fff9ec;
+  color: #4a2c00;
+}
