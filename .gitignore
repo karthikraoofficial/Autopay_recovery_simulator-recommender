@@ -8,3 +8,5 @@ __pycache__/
 ~$*
 node_modules/
 dist/
+# esbuild output for the front-end test bundle (npm test), never committed.
+web/test/.build/

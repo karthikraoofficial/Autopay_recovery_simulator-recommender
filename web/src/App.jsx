@@ -3,6 +3,8 @@ import Chart from "./Chart.jsx";
 import Assumptions from "./Assumptions.jsx";
 import Downloads from "./Downloads.jsx";
 import Ingest from "./Ingest.jsx";
+import ErrorBoundary from "./ErrorBoundary.jsx";
+import { getJson } from "./api.js";
 import { duration, inr, pct } from "./format.js";
 
 const API = "/api";
@@ -341,34 +343,6 @@ const POLL_MS = 1000;
 // "Failed to execute 'json' on 'Response': Unexpected end of JSON input" when the API was
 // down: the Vite proxy answers with an empty body, and parsing that throws a browser
 // message that tells the reader nothing about what actually went wrong.
-async function getJson(url, options) {
-  let response;
-  try {
-    response = await fetch(url, options);
-  } catch {
-    // fetch only rejects when the request never completed at all.
-    throw new Error(
-      `Cannot reach the simulation API at ${url}. Start it with: ` +
-        `python -m uvicorn rebound.api.app:app --port 8000`
-    );
-  }
-  const text = await response.text();
-  if (!text) {
-    throw new Error(
-      `The API returned an empty response (HTTP ${response.status}) for ${url}. ` +
-        "This usually means the API process is not running behind the dev-server proxy."
-    );
-  }
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new Error(`The API returned a non-JSON response (HTTP ${response.status}) for ${url}.`);
-  }
-  if (!response.ok) throw new Error(body.detail ?? `HTTP ${response.status} from ${url}`);
-  return body;
-}
-
 export default function App() {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [sizing, setSizing] = useState("interactive");
@@ -470,8 +444,16 @@ export default function App() {
       {result ? <Downloads result={result} profile={profile} /> : null}
 
       {/* SPEC §15.6. Below the simulated headline and independent of it: this section
-          answers real failures and needs no run to have happened first. */}
-      <Ingest />
+          answers real failures and needs no run to have happened first.
+
+          Inside a boundary because "independent" has to be true in both directions. A
+          runtime error here previously unmounted the whole tree, so a panel that could
+          not list mapping profiles took the simulator, the headline and the exports with
+          it. Losing this section is an inconvenience; losing a result someone waited
+          minutes for is not. */}
+      <ErrorBoundary section="The upload section">
+        <Ingest />
+      </ErrorBoundary>
 
       <Assumptions view={assumptions} error={assumptionsError} />
     </main>

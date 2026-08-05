@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { loadMappings } from "./api.js";
 
 // SPEC §15.6: the upload surface. A merchant's own CSV, read through a stored mapping
 // profile, answered row by row.
@@ -113,7 +114,11 @@ function Refusals({ rows }) {
 }
 
 export default function Ingest() {
+  // Every piece of fetched state starts at a value the render path can handle. `[]` is a
+  // list with nothing in it; the failure is carried in `mappingsError` beside it, never
+  // in place of it.
   const [mappings, setMappings] = useState([]);
+  const [mappingsError, setMappingsError] = useState(null);
   const [selected, setSelected] = useState("");
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
@@ -124,13 +129,24 @@ export default function Ingest() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/recommend/mappings`)
-      .then((r) => r.json())
-      .then(setMappings)
-      .catch((e) => setError(String(e.message ?? e)));
+    // Not `fetch().then(r => r.json())`. A 404 body is `{"detail": "Not Found"}`, which
+    // parses fine, so the error object landed in `mappings` and the next render threw --
+    // taking the entire application down with it. `loadMappings` never throws and never
+    // returns a non-array.
+    let cancelled = false;
+    loadMappings(`${API}/recommend/mappings`).then(({ mappings, error }) => {
+      if (cancelled) return;
+      setMappings(mappings);
+      setMappingsError(error);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const profile = mappings.find((m) => m.name === selected);
+  // Defensive despite the guarantee above: this lookup is what threw, and it is one line
+  // away from being unable to throw at all.
+  const profile = Array.isArray(mappings) ? mappings.find((m) => m.name === selected) : undefined;
 
   const upload = async () => {
     if (!file) return;
@@ -152,7 +168,13 @@ export default function Ingest() {
         headers: { "Content-Type": "text/csv" },
         body: await file.arrayBuffer(),
       });
-      const body = await response.json();
+      const text = await response.text();
+      let body;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw new Error(`The API returned a non-JSON response (HTTP ${response.status}).`);
+      }
       if (!response.ok) {
         // 422 is the file itself; 409 is a mapping that moved under the caller.
         if (response.status === 422 || response.status === 409) setRefusal(body.detail);
@@ -175,6 +197,12 @@ export default function Ingest() {
       headers: { "Content-Type": "text/csv" },
       body: await file.arrayBuffer(),
     });
+    if (!response.ok) {
+      // Saving the body regardless would hand the user a file named .csv containing an
+      // error page, which is worse than no file.
+      setError(`The download failed (HTTP ${response.status}). Nothing was saved.`);
+      return;
+    }
     save(await response.blob(), `rebound-recommend-${table}.csv`);
   };
 
@@ -190,7 +218,11 @@ export default function Ingest() {
       <div className="fields">
         <div>
           <label>Mapping profile</label>
-          <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            disabled={Boolean(mappingsError)}
+          >
             <option value="">None — my file already uses the canonical codes</option>
             {mappings.map((m) => (
               <option key={m.name} value={m.name}>
@@ -198,11 +230,21 @@ export default function Ingest() {
               </option>
             ))}
           </select>
-          <div className="hint">
-            {profile
-              ? `${profile.description ?? ""} Fingerprint ${profile.fingerprint.slice(0, 12)}.`
-              : "Profiles are files in config/merchants/. They are not editable here on purpose: a mapping that can be changed per upload is one that cannot be compared between uploads."}
-          </div>
+          {mappingsError ? (
+            <div className="hint">
+              <span className="error">The mapping profile list is unavailable.</span> {mappingsError}
+              <div>
+                You can still upload a file whose codes are already canonical — the rest of this page,
+                and the whole of the simulator above it, are unaffected.
+              </div>
+            </div>
+          ) : (
+            <div className="hint">
+              {profile
+                ? `${profile.description ?? ""} Fingerprint ${profile.fingerprint.slice(0, 12)}.`
+                : "Profiles are files in config/merchants/. They are not editable here on purpose: a mapping that can be changed per upload is one that cannot be compared between uploads."}
+            </div>
+          )}
         </div>
         <div>
           <label>Failures (CSV)</label>
