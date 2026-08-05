@@ -981,3 +981,19 @@ def test_health_survives_git_being_unavailable() -> None:
     from rebound.api.health import _git
 
     assert _git("not-a-real-git-subcommand") is None
+
+
+def test_a_file_that_breaks_the_parser_returns_json_not_a_500(client: TestClient) -> None:
+    """SPEC §15.1. The caller gets a message they can act on and the UI can render, rather
+    than a text/plain traceback that says only that something went wrong somewhere."""
+    header = client.get("/recommend/template").text.strip()
+    tail = (
+        "TECHNICAL_DECLINE,2026-03-10T11:00:00+00:00,49900,150000,1,"
+        "2026-02-28T11:00:00+00:00,0,,"
+    )
+    oversized = "M" + "x" * 200_000
+    body = f"{header}\n{oversized},UPI_AUTOPAY,{tail}\n"
+    response = client.post("/recommend/batch", content=body)
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/json")
+    assert "Nothing was answered" in response.json()["detail"]

@@ -422,6 +422,19 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
         except (FileRefusalError, KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            # `run_batch` is contracted never to raise anything but the two above, and a
+            # test fuzzes it to keep that true. This is the belt on top of those braces:
+            # whatever happens, the caller gets JSON it can render rather than a traceback
+            # in a text/plain 500 that says nothing and looks like the tool is broken.
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"an unexpected {type(exc).__name__} occurred while reading the file. "
+                    "This is a defect in rebound rather than in your file; nothing was "
+                    "answered."
+                ),
+            ) from exc
         if fmt == "csv":
             return PlainTextResponse(
                 batch_to_csv(result, table),

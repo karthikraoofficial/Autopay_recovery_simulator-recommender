@@ -12,6 +12,8 @@ meaningful delimiter, and a mis-delimited one has no meaningful columns.
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from rebound.recommend.inputs import EXTENDED_COLUMNS, required_columns
 from rebound.recommend.mapping import MerchantMapping
@@ -23,6 +25,54 @@ _CANDIDATE_DELIMITERS = {";": "semicolon", "\t": "tab", "|": "pipe"}
 
 class FileRefusalError(ValueError):
     """The file is refused whole. One message, naming the defect (SPEC §15.1)."""
+
+
+# csv's own limit. Named here because the message that quotes it has to say what it is;
+# it is not raised, because in this schema the longest legitimate value is a timestamp and
+# a cell three orders of magnitude larger than that is not data we should be reading.
+FIELD_SIZE_LIMIT = csv.field_size_limit()
+
+# By far the commonest cause, and the one worth naming: a single unclosed quote makes the
+# parser read everything after it as one value, so the defect is reported at the point the
+# limit is hit rather than at the quote that caused it.
+_FIELD_LIMIT_HINT = (
+    "A value exceeded the {limit:,}-character limit the CSV parser enforces. The longest "
+    "legitimate value here is a timestamp, so this almost always means a quote is unclosed "
+    "and everything after it is being read as one enormous value. Look for a stray \" from "
+    "{line} onwards."
+)
+
+
+@contextmanager
+def refusing(stage: str, record_line: Callable[[], int | None] = lambda: None) -> Iterator[None]:
+    """Turn any unexpected failure in `stage` into a file-level refusal.
+
+    **No input file may produce a 500.** A traceback tells the caller nothing they can act
+    on, arrives as a non-JSON body the UI cannot render, and reads as "this tool is broken"
+    rather than "this file is". Every file we cannot read is a refusal that says so.
+
+    This converts *unexpected* failures only. It does not relax a single check: everything
+    that was refused before is still refused, by the same rule, with the same message. What
+    changes is that a parser blowing up in a way nobody anticipated now lands in the same
+    shape as the failures that were anticipated.
+    """
+    try:
+        yield
+    except FileRefusalError:
+        raise
+    except Exception as exc:
+        at = record_line()
+        where = f", at the record starting on line {at}" if at else ""
+        detail = (
+            _FIELD_LIMIT_HINT.format(
+                limit=FIELD_SIZE_LIMIT, line=f"line {at}" if at else "the start of the file"
+            )
+            if "field larger than field limit" in str(exc)
+            else f"{type(exc).__name__}: {exc}"
+        )
+        raise FileRefusalError(
+            f"the file could not be read while {stage}{where}. Nothing was answered. {detail}"
+        ) from exc
 
 
 def decode(body: bytes) -> str:
@@ -106,12 +156,19 @@ def rewrite_header(text: str, columns: list[str]) -> str:
 
 
 def prepare(body: bytes, mapping: MerchantMapping | None) -> str:
-    """Every file-level check, in order, returning the text the row engine should read."""
-    text = decode(body)
-    check_delimiter(text)
-    columns = read_header(text, mapping)
-    check_header(columns)
-    return rewrite_header(text, columns)
+    """Every file-level check, in order, returning the text the row engine should read.
+
+    Each stage is guarded, so a file that breaks a parser in a way none of these checks
+    anticipated is refused with a message rather than raised as a traceback.
+    """
+    with refusing("decoding the file"):
+        text = decode(body)
+    with refusing("reading the header line"):
+        check_delimiter(text)
+        columns = read_header(text, mapping)
+        check_header(columns)
+    with refusing("normalising the header"):
+        return rewrite_header(text, columns)
 
 
 def check_has_rows(row_count: int) -> None:

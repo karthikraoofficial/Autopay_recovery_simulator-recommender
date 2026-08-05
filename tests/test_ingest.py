@@ -16,9 +16,9 @@ from rebound.config import Assumptions
 from rebound.domain.reason_codes import ReasonCode
 from rebound.harness.segments import SegmentReport
 from rebound.recommend import evidence as ev
-from rebound.recommend.batch import RefusalKind, run_batch
+from rebound.recommend.batch import BatchTooLargeError, RefusalKind, run_batch
 from rebound.recommend.csv_out import Table, to_csv
-from rebound.recommend.ingest import FileRefusalError
+from rebound.recommend.ingest import FIELD_SIZE_LIMIT, FileRefusalError
 from rebound.recommend.inputs import EXTENDED_COLUMNS, MINIMUM_COLUMNS, required_columns
 from rebound.recommend.mapping import (
     MappingError,
@@ -307,3 +307,97 @@ def test_no_csv_column_is_named_for_a_prediction(report: SegmentReport) -> None:
     text = to_csv(run_batch(body(HEADER, ROW), report), Table.ANSWERS)
     header = next(line for line in text.splitlines() if not line.startswith("#"))
     assert not [c for c in header.split(",") if "prob" in c or "score" in c or "expect" in c]
+
+
+# --- no input file may produce a 500 (SPEC §15.1) -----------------------------------------
+
+
+OVERSIZED = "M" + "x" * (FIELD_SIZE_LIMIT + 1)
+
+# Files engineered to break a parser rather than to fail a validation rule. Each must come
+# back as a refusal naming what failed; none may raise anything else.
+PATHOLOGICAL: dict[str, bytes] = {
+    "cell over the csv field limit": body(HEADER, ROW.replace("M-1", OVERSIZED)),
+    "unclosed quote swallowing the file": body(HEADER, '"M-1' + ",x" * 100_000),
+    "oversized header cell": body(HEADER + "," + "y" * (FIELD_SIZE_LIMIT + 1), ROW),
+    "NUL bytes in a cell": body(HEADER, ROW.replace("M-1", "M\x00-1")),
+    "not utf-8 at all": "M-1,UPI".encode("utf-16"),
+    "empty": b"",
+    "header only": body(HEADER),
+    "no header": body(ROW),
+    "semicolons": body(HEADER.replace(",", ";"), ROW.replace(",", ";")),
+    "only commas": body(",,,,,,,,,,", ROW),
+    "one enormous line, no newline": (HEADER + "\n" + "z" * (FIELD_SIZE_LIMIT + 1)).encode(),
+    "binary noise": bytes(range(256)) * 40,
+}
+
+
+@pytest.mark.parametrize("name", sorted(PATHOLOGICAL))
+def test_a_file_engineered_to_break_the_parser_refuses_rather_than_raising(
+    name: str, report: SegmentReport
+) -> None:
+    """SPEC §15.1: a traceback tells the caller nothing, arrives as a body the UI cannot
+    render, and reads as 'this tool is broken' rather than 'this file is'."""
+    try:
+        run_batch(PATHOLOGICAL[name], report)
+    except (FileRefusalError, BatchTooLargeError) as refusal:
+        assert str(refusal), "a refusal must carry a message"
+    except Exception as exc:  # noqa: BLE001 - the failure this test exists to catch
+        pytest.fail(f"{name} raised {type(exc).__name__} instead of refusing: {exc}")
+
+
+def test_the_oversized_cell_refusal_names_the_line_and_the_likely_cause(
+    report: SegmentReport,
+) -> None:
+    """The line reported is where the failing *record* starts, not the last line finished --
+    off by one, it sends someone to look at the row before the problem."""
+    with pytest.raises(FileRefusalError) as caught:
+        run_batch(body(HEADER, ROW, ROW.replace("M-1", OVERSIZED)), report)
+    message = str(caught.value)
+    assert "line 3" in message
+    assert "unclosed" in message
+    assert f"{FIELD_SIZE_LIMIT:,}" in message
+
+
+def test_the_field_limit_is_refused_rather_than_raised(report: SegmentReport) -> None:
+    """The fix is not `csv.field_size_limit(bigger)`. The longest legitimate value in this
+    schema is a timestamp; accepting a 128 KiB cell would be loosening validation to make a
+    crash go away."""
+    import csv as csv_module
+
+    assert csv_module.field_size_limit() == FIELD_SIZE_LIMIT
+    with pytest.raises(FileRefusalError):
+        run_batch(body(HEADER, ROW.replace("M-1", OVERSIZED)), report)
+
+
+def test_an_unexpected_failure_on_one_row_costs_only_that_row(
+    report: SegmentReport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Contained at the row, not the file. A strange row must not cost the good rows their
+    answers, and the refusal names the exception so it stays diagnosable."""
+    from rebound.recommend import batch as batch_module
+
+    real = batch_module.recommend
+
+    def explode(failure, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if failure.mandate_ref == "M-2":
+            raise RuntimeError("something nobody anticipated")
+        return real(failure, *args, **kwargs)
+
+    monkeypatch.setattr(batch_module, "recommend", explode)
+    result = run_batch(
+        body(HEADER, ROW, ROW.replace("M-1", "M-2"), ROW.replace("M-1", "M-3")), report
+    )
+    assert result.rows_answered == 2
+    assert result.rows_refused == 1
+    refusal = result.refusals[0]
+    assert refusal.kind is RefusalKind.UNREADABLE_ROW
+    assert "RuntimeError" in refusal.detail
+    assert "something nobody anticipated" in refusal.detail
+    assert refusal.input["mandate_ref"] == "M-2"
+
+
+def test_a_valid_file_is_unaffected_by_any_of_this(report: SegmentReport) -> None:
+    """The guard converts unexpected failures; it must not have relaxed a single check."""
+    result = run_batch(body(HEADER, ROW), report)
+    assert (result.rows_answered, result.rows_refused) == (1, 0)

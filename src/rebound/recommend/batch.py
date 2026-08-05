@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from rebound.config import Assumptions, load_assumptions
 from rebound.harness.segments import SegmentReport
-from rebound.recommend.ingest import check_has_rows, prepare
+from rebound.recommend.ingest import check_has_rows, prepare, refusing
 from rebound.recommend.inputs import EXTENDED_COLUMNS, MINIMUM_COLUMNS, ObservedFailure
 from rebound.recommend.mapping import MerchantMapping, UnmappedValueError
 from rebound.recommend.service import Recommendation, recommend
@@ -43,6 +43,9 @@ class RefusalKind(StrEnum):
     MALFORMED_ROW = "malformed row"
     UNMAPPED_VALUE = "unmapped value"
     FIELD = "field"
+    # A row that failed in a way nothing here anticipated. Refused like any other rather
+    # than raised, so one strange row costs its own answer and not the whole file's.
+    UNREADABLE_ROW = "unreadable row"
 
 
 class RowRefusal(BaseModel):
@@ -232,6 +235,21 @@ def _fingerprint(mapping: MerchantMapping | None) -> str | None:
     return mapping.fingerprint() if mapping is not None else None
 
 
+def _parse_rows(text: str) -> list[dict[str, object]]:
+    """Every row, or a refusal naming the line the parser gave up on.
+
+    `csv` raises during iteration, and its state after an error is not defined, so a failure
+    here refuses the file rather than trying to resume past it. The line number comes from
+    the reader, because "somewhere in your file" is not an actionable message.
+    """
+    reader = csv.DictReader(io.StringIO(text), restkey=_EXTRA_KEY, restval=_MISSING)
+    # `line_num` is the last line the reader *finished*, so the record that failed starts on
+    # the next one. Reporting the finished line would send someone to look at the row before
+    # the problem, which is worse than reporting nothing.
+    with refusing("parsing the rows", lambda: reader.line_num + 1):
+        return list(reader)
+
+
 def run_batch(
     body: bytes | str,
     report: SegmentReport,
@@ -246,8 +264,7 @@ def run_batch(
     assumptions = assumptions or load_assumptions()
     max_rows = int(assumptions.value("recommend.batch_max_rows"))
     text = prepare(body if isinstance(body, bytes) else body.encode("utf-8"), mapping)
-    reader = csv.DictReader(io.StringIO(text), restkey=_EXTRA_KEY, restval=_MISSING)
-    rows = list(reader)
+    rows = _parse_rows(text)
     if len(rows) > max_rows:
         raise BatchTooLargeError(
             f"{len(rows)} rows exceeds recommend.batch_max_rows ({max_rows}). Nothing was "
@@ -257,7 +274,22 @@ def run_batch(
     answers: list[Recommendation] = []
     refusals: list[RowRefusal] = []
     for index, row in enumerate(rows, start=2):  # row 1 is the header, as the caller sees it
-        outcome = _answer_row(index, row, mapping, report, assumptions)
+        try:
+            outcome = _answer_row(index, row, mapping, report, assumptions)
+        except Exception as exc:  # noqa: BLE001 - deliberate; see RefusalKind.UNREADABLE_ROW
+            # Contained at the row, not the file: an unanticipated failure on one row must
+            # not cost the other rows their answers. It is reported as a refusal naming the
+            # exception, so it stays diagnosable rather than being quietly swallowed.
+            outcome = RowRefusal(
+                row_number=index,
+                kind=RefusalKind.UNREADABLE_ROW,
+                mandate_ref=_mandate_ref(row),
+                detail=(
+                    f"this row could not be processed: {type(exc).__name__}: {exc}. The "
+                    "other rows in the file were answered normally."
+                ),
+                input=_clean(row),
+            )
         (answers if isinstance(outcome, Recommendation) else refusals).append(outcome)  # type: ignore[arg-type]
     counts = Counter(field for refusal in refusals for field in refusal.fields)
     return BatchResult(

@@ -626,6 +626,12 @@ Checked in this order, each refusing before the next runs, because a failure at 
 
 Structurally required columns are **derived from the model** — the fields of `ObservedFailure` with no default — never listed by hand. `original_attempt_at` and `bank_batch_cutoff_time` are conditionally required *per row* (§14.2) and so are optional as columns; a row that needs one and lacks it is a row-level refusal, which is the right level for it.
 
+**No input file may produce a 500.** A file we cannot read is a refusal naming what failed, never an unhandled exception: a traceback tells the caller nothing they can act on, arrives as a body the UI cannot render, and reads as *this tool is broken* rather than *this file is*. Every stage of ingestion is wrapped so that an unanticipated failure lands in the same shape as an anticipated one, reporting the line the failing record starts on.
+
+This converts unexpected failures; it relaxes nothing. A cell larger than the CSV parser's field limit is **refused, not accommodated by raising the limit** — the longest legitimate value in this schema is a timestamp, so a cell three orders of magnitude larger is not data to be read, and raising the limit to stop a crash would be loosening validation to hide it. The message names the likeliest cause, an unclosed quote earlier in the file, because that is what actually produces one.
+
+An unanticipated failure on a single *row* is contained at that row rather than the file, so one strange row costs its own answer and not the other four thousand. It is reported as a refusal naming the exception, so it stays diagnosable instead of being quietly swallowed.
+
 **Header-only and empty files refuse.** Answering `200` with zero rows treats "you sent nothing" as a successful answer about nothing, and a caller whose export silently produced no rows learns it from a count they were not looking at.
 
 ### 15.2 Row-level refusals stay per row
