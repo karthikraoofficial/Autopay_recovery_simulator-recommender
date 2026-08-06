@@ -92,6 +92,10 @@ class SegmentCollector:
         if episode.original_attempt.reason_code is not None:
             self.opening_reasons[key].append(episode.original_attempt.reason_code)
 
+    def saw_opening_attempt(self, *_: object) -> None:
+        """Not needed here. Segmentation counts episodes, which are failed openings; the
+        successful ones it never has to look at."""
+
     def saw_cycle_guard_events(self, *_: object) -> None:
         """Not needed here. Segmentation reports how often compliance blocked a retry
         (the aggregate counters already carry that) and never which rule blocked which

@@ -22,6 +22,7 @@ from rebound.harness.runner import (
     run_experiment,
 )
 from rebound.harness.segments import SegmentCollector, SegmentReport, build_report
+from rebound.harness.volumes import VolumeCollector, VolumeSummary, volume_summary
 
 PAISE_PER_RUPEE = 100
 
@@ -100,6 +101,11 @@ class SimulationResult(BaseModel):
     scheduler_reference: str
     baseline: str
     headline: str
+    # SPEC §6.2: context above the two line items, never a third one. How many opening
+    # debits were attempted and how many failed, per rail and overall -- the question a
+    # merchant asks before asking what recovery is worth. Measured on the scheduler
+    # reference run, which is what they are doing today.
+    volumes: VolumeSummary
     # The two line items. There is deliberately no field summing them.
     rescheduling: LiftLine
     strategy: LiftLine
@@ -245,16 +251,22 @@ def simulate(
     base = assumptions or load_assumptions()
     plan = sizing_plan(base, sizing, profile.book_size)
     configured = profile.configure(base, plan)
+    # Observed, not re-simulated: the volumes and the rupee figures have to describe the
+    # same book, and the observer cannot reach the RNG so the run is unchanged by watching.
+    reference = str(configured.value("harness.scheduler_reference_strategy"))
+    volumes = VolumeCollector(reference)
     report = run_experiment(
         default_strategies(configured),
         master_seed,
         configured,
         n_seeds=plan.n_seeds,
         progress=progress,
+        observer=volumes,
     )
     rescheduling, strategy = _lift_lines(report, configured)
     return SimulationResult(
-        scheduler_reference=str(configured.value("harness.scheduler_reference_strategy")),
+        scheduler_reference=reference,
+        volumes=volume_summary(volumes, master_seed, configured),
         baseline=str(configured.value("harness.baseline_strategy")),
         headline=str(configured.value("harness.headline_strategy")),
         rescheduling=rescheduling,

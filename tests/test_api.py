@@ -997,3 +997,41 @@ def test_a_file_that_breaks_the_parser_returns_json_not_a_500(client: TestClient
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/json")
     assert "Nothing was answered" in response.json()["detail"]
+
+
+# --- volumes: context above the headline (SPEC §6.2) --------------------------------------
+
+
+def test_the_result_carries_opening_debit_volumes(result: SimulationResult) -> None:
+    """The question a merchant asks first, answerable from the run that produced the rupee
+    figures rather than from a second one."""
+    volumes = result.volumes
+    assert volumes.lines
+    assert volumes.lines[-1].rail == "all rails"
+    assert volumes.strategy == result.scheduler_reference
+
+
+def test_the_volumes_come_from_the_same_run_as_the_headline(result: SimulationResult) -> None:
+    """Not re-simulated. A second run could disagree with the numbers it is context for."""
+    assert set(result.volumes.seeds) == set(result.seeds)
+
+
+def test_no_volume_figure_is_reported_without_an_interval(result: SimulationResult) -> None:
+    for line in result.volumes.lines:
+        for interval in (line.attempted, line.failed, line.failure_rate):
+            assert interval.low <= interval.point <= interval.high
+
+
+def test_the_failure_rate_is_between_zero_and_one(result: SimulationResult) -> None:
+    for line in result.volumes.lines:
+        assert 0.0 <= line.failure_rate.low <= line.failure_rate.high <= 1.0
+
+
+def test_volumes_are_not_summed_into_the_lift_line_items(result: SimulationResult) -> None:
+    """SPEC §6.2 forbids a field summing the two line items; the same reasoning forbids
+    folding volumes into either of them. They are context, not a third item."""
+    payload = result.model_dump()
+    assert "volumes" in payload
+    for line in ("rescheduling", "strategy"):
+        assert "volumes" not in payload[line]
+        assert "attempted" not in payload[line]

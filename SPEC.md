@@ -201,7 +201,13 @@ Write these as failing tests before the strategies exist:
 Single-page dashboard. Three sections:
 
 1. **Input** — six live fields, every one of which moves the number: book size, avg ticket, UPI share, eNACH share (card = remainder), reason-code mix (current / IF-dominant / technical-dominant), performance fee rate. Horizon fixed at 12 months. `vertical` and `billing_day_policy` were dropped in phase 8 — neither drove any generator, and an inert control is worse than an absent one.
-2. **Result** — the decomposition as **two separate line items, never summed**: rescheduling lift (`NoReschedule` → `FixedSchedule`) and strategy lift (`FixedSchedule` → `Blended`), each in ₹ with its confidence interval. Seed count and interval width displayed alongside. Where an interval spans zero, say so in words — a non-significant result must not be rendered as a bar that reads as positive.
+2. **Result** — **volumes first, then** the decomposition as **two separate line items, never summed**:
+
+   **Volumes are context, not a third line item.** Opening debits attempted, opening debits failed, and the failure rate — per rail and overall, intervals across seeds. A merchant asks *how many of my debits fail* before asking what recovery is worth, and the run that produces the rupee figures should answer both. Rendered above the lift items and styled apart from them, because it states the size of the problem rather than making a claim about what fixing it is worth. It is measured on the `harness.scheduler_reference_strategy` run — what the book does today — and names that run, because opening debits are not quite strategy-invariant: retry aggression induces revocations, and a revoked mandate has no further openings. A rail with no debits is **absent rather than reported as 0%**, since a rate over zero debits is undefined.
+
+   Cut from the headline's own run via `RunObserver`, never re-simulated (§12.3's rule). Note that the denominator is genuinely new state: `StrategyMetrics.total_attempts` counts attempts *inside episodes*, and an episode exists only for a failed opening, so `total_attempts - retry_attempts` is identically `episodes` and a successful opening debit was previously recorded nowhere.
+
+   Then the decomposition: rescheduling lift (`NoReschedule` → `FixedSchedule`) and strategy lift (`FixedSchedule` → `Blended`), each in ₹ with its confidence interval. Seed count and interval width displayed alongside. Where an interval spans zero, say so in words — a non-significant result must not be rendered as a bar that reads as positive.
 3. **Assumptions** — rendered `assumptions.yaml` with sources and confidence levels, always visible, never behind a click.
 
 Resist adding more. The dashboard's job is to survive scrutiny, not to impress.

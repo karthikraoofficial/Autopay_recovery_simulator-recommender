@@ -251,6 +251,57 @@ function StrategyTable({ result }) {
   );
 }
 
+// SPEC §6.2: context for the headline, above the two line items and never inside them.
+// A merchant asks "how many of my debits fail" before "what is recovery worth", and until
+// now the run that produced the rupee figures could not answer it -- the counters recorded
+// failed openings and never the successful ones, so there was a numerator and no
+// denominator.
+//
+// Deliberately styled apart from the lift items: this is the size of the problem, not a
+// claim about what fixing it is worth. Rendered as a table rather than as line items so it
+// cannot be read as a third one.
+function Volumes({ volumes }) {
+  if (!volumes || !volumes.lines.length) return null;
+  const count = (i) => `${Math.round(i.low).toLocaleString("en-IN")}–${Math.round(i.high).toLocaleString("en-IN")}`;
+  return (
+    <div className="volumes">
+      <h3>Before any of that: how many debits fail</h3>
+      <p className="hint">
+        Opening debits over the run, on the <code>{volumes.strategy}</code> run — what the book does today, before any
+        retry logic. Intervals across {volumes.seeds.length} seeds at {pct(volumes.level, 0)}; the point estimate
+        follows each. Counts are per simulated book and are not scaled to yours.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Rail</th>
+            <th>Debits attempted</th>
+            <th>Failed</th>
+            <th>Failure rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {volumes.lines.map((line) => (
+            <tr key={line.rail} className={line.rail === "all rails" ? "overall" : undefined}>
+              <td>{line.rail}</td>
+              <td>
+                {count(line.attempted)} <span className="hint">({Math.round(line.attempted.point).toLocaleString("en-IN")})</span>
+              </td>
+              <td>
+                {count(line.failed)} <span className="hint">({Math.round(line.failed.point).toLocaleString("en-IN")})</span>
+              </td>
+              <td>
+                {pct(line.failure_rate.low, 1)}–{pct(line.failure_rate.high, 1)}{" "}
+                <span className="hint">({pct(line.failure_rate.point, 1)})</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Result({ result, job, profile }) {
   // Actual wall-clock time comes from the job, not from the result. `SimulationResult`
   // deliberately carries no timing: the same seed and config must produce a byte-identical
@@ -302,6 +353,8 @@ function Result({ result, job, profile }) {
           tested. For a figure that is genuinely your book's, use the publication run.
         </div>
       ) : null}
+
+      <Volumes volumes={result.volumes} />
 
       <p className="lede">
         The headline is two line items and is never summed. Phase 7 measured the first to be several times the second:

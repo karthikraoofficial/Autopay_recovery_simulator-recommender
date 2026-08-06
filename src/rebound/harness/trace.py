@@ -183,6 +183,10 @@ class TraceCollector:
     ) -> None:
         self.episodes.setdefault((strategy, mandate.id), []).append(episode)
 
+    def saw_opening_attempt(self, *_: object) -> None:
+        """Not needed here. The trace is built from episodes and their attempts; an
+        opening that succeeded starts no episode and so has no rows to carry."""
+
     def saw_cycle_guard_events(
         self,
         strategy: str,

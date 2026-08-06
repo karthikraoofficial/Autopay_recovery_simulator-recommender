@@ -190,6 +190,38 @@ model. The fast run simply could not see it.
 
 ## Reading the result
 
+### First: how many of your debits fail
+
+Above the two line items, before any claim about recovery, the result now reports the
+volumes underneath it — opening debits attempted, how many failed, and the failure rate,
+per rail and overall, each with an interval across seeds.
+
+```
+Rail            Debits attempted   Failed      Failure rate
+UPI_AUTOPAY     82–96 (89)         5–10 (8)    6.2%–10.9% (8.6%)
+ENACH           55–57 (56)         1–3 (2)     2.3%–4.8%  (3.6%)
+CARD_EMANDATE   29–41 (35)         2–4 (3)     6.5%–10.3% (8.6%)
+all rails       180–180 (180)      10–15 (13)  5.6%–8.5%  (7.0%)
+```
+
+This is **context, not a third line item**, and it is deliberately styled apart from the
+two lift figures: it says how big the problem is, not what fixing it is worth. Never add it
+to anything.
+
+Three things worth knowing about it:
+
+- It is measured on the **`NoReschedule` run** — what your book does today, before any retry
+  logic — and the panel says so. Opening debits are not quite strategy-invariant: aggressive
+  retrying induces revocations, and a revoked mandate has no further debits to attempt.
+- It comes from **the same run as the rupee figures**, not a second one, so the two cannot
+  disagree.
+- A rail you do not use is **absent, not shown as 0%**. A failure rate over zero debits is
+  undefined, and printing 0% would put a reassuring number against a rail nothing was ever
+  tried on.
+
+Counts are per simulated book, like every other figure here — a fast run's volumes are not
+your book's volumes.
+
 ### The two line items — and why they are never added together
 
 This is the single most important thing on the page.

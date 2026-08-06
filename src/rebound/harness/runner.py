@@ -74,6 +74,21 @@ class RunObserver(Protocol):
         self, strategy: str, seed: int, mandate: Mandate, episode: RecoveryEpisode
     ) -> None: ...
 
+    def saw_opening_attempt(
+        self, strategy: str, seed: int, mandate: Mandate, cycle_index: int, failed: bool
+    ) -> None:
+        """The opening debit of one billing cycle, and whether it failed.
+
+        The aggregate counters can produce this in total -- attempted is
+        `total_attempts - retry_attempts`, failed is `episodes` -- but not per rail, and a
+        merchant asks "how many of my UPI debits fail" before asking what recovery is
+        worth. Handed over here so the answer is cut from the same run as the headline
+        rather than from a second simulation that could disagree with it.
+
+        A *successful* opening produces no episode, so `saw_episode` cannot see the
+        denominator. That is the whole reason this hook exists.
+        """
+
     def saw_cycle_guard_events(
         self,
         strategy: str,
@@ -417,6 +432,13 @@ def _run_strategy(
             )
             revocations += induced
             terminated += stopped
+            if observer is not None:
+                # Every cycle that reaches `_run_cycle` makes exactly one opening debit,
+                # and it failed iff an episode came back. Reported before the episode so
+                # the denominator is counted whatever happens to the numerator.
+                observer.saw_opening_attempt(
+                    strategy.name, seed, mandate, cycle_index, episode is not None
+                )
             if episode is not None:
                 episodes.append(episode)
                 if observer is not None:

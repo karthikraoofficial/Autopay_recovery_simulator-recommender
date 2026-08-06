@@ -451,3 +451,23 @@ code {
   background: #fff9ec;
   color: #4a2c00;
 }
+
+/* Volumes: context above the headline. Set apart from the lift items on purpose -- it is
+   the size of the problem, not a claim about what fixing it is worth. */
+.volumes {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--rule, #dcdcdc);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.015);
+}
+.volumes h3 {
+  margin: 0 0 0.35rem;
+}
+.volumes table {
+  margin-top: 0.75rem;
+}
+.volumes tr.overall {
+  font-weight: 600;
+  border-top: 2px solid var(--rule, #dcdcdc);
+}
