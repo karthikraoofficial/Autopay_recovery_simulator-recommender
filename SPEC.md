@@ -324,6 +324,32 @@ Logged rather than built. None of them is a finding about the model.
 
   Closing it needs a second uploaded file of attempts keyed on `mandate_ref`, in the shape §13.5 uses for the trace export: two files, one join key. Not in 10.5.
 
+### Calibration target — the model's failure incidence looks low, measured phase 10.6
+
+**Opening-debit failure rate: [5.6%, 8.5%] on an interactive run, 6.6% measured on 500 mandates x 12 months x 4 seeds. A commonly cited figure for mid-sized NBFC books is around 12%.**
+
+If the model understates how often debits fail, it understates the size of the pool recovery works on, and **every rupee figure in this project is conservative** — the headline, both line items, and every segment. That is the safe direction to be wrong in for a sales instrument, and it is still wrong.
+
+**This is the single best calibration target for the first pilot.** A merchant's own bounce rate is a number they already have, it needs no consent, no integration and no reason-code mapping, and it checks the model at the point everything else rests on. Ask for it before asking for anything else.
+
+Two caveats on the ~12% comparison, so it is not treated as a refutation on its own: it is a practitioner figure with no circular behind it, and a real book's bounce rate includes rails, tenures and vintages this model does not distinguish. It is a target to check against, not a number to tune to until a pilot supplies one.
+
+### Where the per-rail failure difference comes from, measured phase 10.6
+
+Measured on 23,793 opening debits (500 mandates x 12 months x 4 seeds, `NoReschedule`), failures per 1,000 opening debits:
+
+| Rail | Failure rate | `INSUFFICIENT_FUNDS` | `TECHNICAL_DECLINE` | `BANK_UNAVAILABLE` |
+|---|---|---|---|---|
+| `UPI_AUTOPAY` | 7.44% | 22.5 | 27.0 | 17.9 |
+| `ENACH` | 6.04% | 25.4 | 18.0 | 11.5 |
+| `CARD_EMANDATE` | 4.85% | 27.8 | 8.8 | 6.1 |
+
+**The rail difference is entirely the technical channel, and it comes from one assumption.** `INSUFFICIENT_FUNDS` is flat across rails — slightly *higher* on eNACH and cards, since the balance process is rail-independent and only the attempt's timing differs. The technical columns track `engine.rail_technical_multiplier.*` (1.0 / 0.6 / 0.35) almost exactly: eNACH/UPI is 0.67 and 0.64 against a multiplier of 0.6, cards 0.33 and 0.34 against 0.35.
+
+So the answer to "is it the balance check, the cap distribution, or bank uptime" is **bank uptime, scaled by a single `confidence: estimate` key per rail**. The cap distribution contributes nothing: `MANDATE_AMOUNT_EXCEEDED` does not occur at all at a ₹499 ticket against caps of ₹15k / ₹1cr / ₹15L, consistent with the 0.12% bind rate recorded above.
+
+**eNACH is the rail carrying most of the rescheduling lift, so this matters more there than the size of the gap suggests.** Two things bound the risk. Its `INSUFFICIENT_FUNDS` rate — the pool timing works on — is not understated relative to UPI; it is marginally higher. And the phase-7 sweep moved `engine.rail_technical_multiplier.enach` by ±50% for a 6.2% swing in the headline, and did not flag it fragile, so the ranking survives that estimate being wrong by half even though the magnitude moves.
+
 ### Sensitivity sweep, phase 7 (run and valid; two rows outstanding)
 
 Run at 400 mandates x 12 months x 24 seeds, subject `Blended` vs `FixedSchedule`, 16 shortlisted keys. Output: `notebooks/phase7_sweep_output.txt`, `notebooks/phase7_sweep.json`.
