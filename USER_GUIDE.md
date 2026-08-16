@@ -20,7 +20,7 @@ Two processes. From the repo root:
 
 ```bash
 # terminal 1 — the simulation API
-.venv/Scripts/python.exe -m uvicorn rebound.api.app:app --port 8000 --reload
+.venv/Scripts/python.exe -m uvicorn rebound.api.app:app --port 8001 --reload
 
 # terminal 2 — the dashboard
 cd web && npm run dev
@@ -46,7 +46,7 @@ Then open **http://localhost:5173**.
 > also ask directly:
 >
 > ```bash
-> curl -s localhost:8000/health
+> curl -s localhost:8001/health
 > # {"commit":"b70fbe7c…","dirty":true,"started_at":"…","config_fingerprint":"c0f6aba3…"}
 > ```
 >
@@ -370,10 +370,10 @@ text file. It re-runs the simulation rather than reading a cached result, so it 
 what the original run did. By script:
 
 ```bash
-curl "http://localhost:8000/segments?book_size=400&format=text" > segments.txt
+curl "http://localhost:8001/segments?book_size=400&format=text" > segments.txt
 
 # JSON instead, if you want to process it:
-curl "http://localhost:8000/segments?book_size=400" > segments.json
+curl "http://localhost:8001/segments?book_size=400" > segments.json
 
 # or standalone, with the control's own summary printed last:
 python notebooks/phase85_segments.py 400 8
@@ -518,16 +518,16 @@ Two things to know before you click:
 
 ```bash
 # the segment report, as the rendered text
-curl "http://localhost:8000/segments?book_size=200&format=text" > segments.txt
+curl "http://localhost:8001/segments?book_size=200&format=text" > segments.txt
 
 # JSON, structured
-curl "http://localhost:8000/trace?seed=20260801&book_size=200" > trace.json
+curl "http://localhost:8001/trace?seed=20260801&book_size=200" > trace.json
 
 # CSV, one row per attempt
-curl "http://localhost:8000/trace?seed=20260801&format=csv&table=attempts" > attempts.csv
+curl "http://localhost:8001/trace?seed=20260801&format=csv&table=attempts" > attempts.csv
 
 # CSV, the mandate attributes, joined on sim_id
-curl "http://localhost:8000/trace?seed=20260801&format=csv&table=mandates" > mandates.csv
+curl "http://localhost:8001/trace?seed=20260801&format=csv&table=mandates" > mandates.csv
 ```
 
 Two CSVs, one join key. `attempts.csv` is long format — one row per attempt, every column
@@ -582,7 +582,7 @@ It runs no simulation. It is the same strategy classes, driven by your fields in
 generated ones.
 
 ```bash
-curl -s localhost:8000/recommend -H 'content-type: application/json' -d '{
+curl -s localhost:8001/recommend -H 'content-type: application/json' -d '{
   "mandate_ref": "your-own-id",
   "rail": "UPI_AUTOPAY",
   "reason_code": "TECHNICAL_DECLINE",
@@ -676,9 +676,9 @@ and trace exports use.
 ### A CSV of failures
 
 ```bash
-curl -s "localhost:8000/recommend/template" -o failures.csv   # or ?extended=true
+curl -s "localhost:8001/recommend/template" -o failures.csv   # or ?extended=true
 # fill it in, then:
-curl -s localhost:8000/recommend/batch --data-binary @failures.csv
+curl -s localhost:8001/recommend/batch --data-binary @failures.csv
 ```
 
 One answer per row. A bad row is refused on its own and the good rows still answer;
@@ -722,7 +722,7 @@ A profile in `config/merchants/<name>.yaml` maps your codes, rails, column names
 format onto the canonical ones. Name it in the request:
 
 ```bash
-curl -s "localhost:8000/recommend/batch?mapping=example" --data-binary @failures.csv
+curl -s "localhost:8001/recommend/batch?mapping=example" --data-binary @failures.csv
 ```
 
 See `config/merchants/example.yaml` for a worked one.
@@ -745,7 +745,7 @@ moved.
 Pass `expect_mapping` and a change is refused rather than absorbed:
 
 ```bash
-curl -s "localhost:8000/recommend/batch?mapping=example&expect_mapping=375fd14397dd..." \
+curl -s "localhost:8001/recommend/batch?mapping=example&expect_mapping=375fd14397dd..." \
   --data-binary @failures.csv
 # 409: the mapping profile 'example' is not the one this file was expected to be read
 # through. Nothing was answered.
@@ -758,11 +758,11 @@ fingerprint nobody compares is decoration.
 
 ```bash
 # the answers, as CSV, with both fingerprints in the # header block
-curl -s "localhost:8000/recommend/batch?mapping=example&format=csv&table=answers" \
+curl -s "localhost:8001/recommend/batch?mapping=example&format=csv&table=answers" \
   --data-binary @failures.csv
 
 # the refusals, carrying your own values back under the canonical column names
-curl -s "localhost:8000/recommend/batch?mapping=example&format=csv&table=refusals" \
+curl -s "localhost:8001/recommend/batch?mapping=example&format=csv&table=refusals" \
   --data-binary @failures.csv
 ```
 
@@ -900,7 +900,7 @@ Be direct about these. They are what a competent CFO will ask.
 | Download either artifact | the **Take away** section, after a run completes |
 | Row-level trace of one seed | `GET /trace?seed=N` (JSON) or `&format=csv&table=attempts` |
 | Check nothing broke | `pytest -q` |
-| API docs | http://localhost:8000/docs |
+| API docs | http://localhost:8001/docs |
 | Check the API isn't stale | `GET /health` — commit + config fingerprint |
 | Price a run without running it | `POST /simulate/estimate` |
 | Start a run / poll it | `POST /simulate/jobs` → `GET /simulate/jobs/{id}` |

@@ -59,7 +59,7 @@ export default function Downloads({ result, profile }) {
     } catch {
       throw new Error(
         "Cannot reach the simulation API. Start it with: " +
-          "python -m uvicorn rebound.api.app:app --port 8000"
+          "python -m uvicorn rebound.api.app:app --port 8001"
       );
     }
     const text = await response.text();

@@ -20,8 +20,9 @@ export default defineConfig({
   define: { __BUILD_COMMIT__: JSON.stringify(buildCommit()) },
   server: {
     port: 5173,
-    // The API runs on 8000. Proxying keeps the front end origin-relative, so nothing in
-    // the app hardcodes a host.
-    proxy: { "/api": { target: "http://127.0.0.1:8000", rewrite: (p) => p.replace(/^\/api/, "") } },
+    // The API runs on 8001. Proxying keeps the front end origin-relative, so nothing in
+    // the app hardcodes a host. Moved off 8000 because another project on this machine
+    // owns that port; the number matters to nothing but this line and the uvicorn command.
+    proxy: { "/api": { target: "http://127.0.0.1:8001", rewrite: (p) => p.replace(/^\/api/, "") } },
   },
 });
