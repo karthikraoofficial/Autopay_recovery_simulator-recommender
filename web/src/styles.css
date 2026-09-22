@@ -430,6 +430,14 @@ code {
 .ingest table {
   margin-top: 1rem;
 }
+/* Rule and evidence are sentences. Unwrapped, they pushed the answers table past the
+   edge of its card. */
+.answers th:nth-child(n + 4),
+.answers td:nth-child(n + 4) {
+  white-space: normal;
+  text-align: left;
+  min-width: 24ch;
+}
 .ingest input[type="file"] {
   padding: 0.35rem 0;
 }

@@ -64,7 +64,7 @@ function Summary({ result }) {
 function Answers({ rows }) {
   if (!rows.length) return null;
   return (
-    <table>
+    <table className="answers">
       <thead>
         <tr>
           <th>Reference</th>
