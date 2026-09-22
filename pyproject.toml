@@ -7,6 +7,7 @@ name = "rebound"
 version = "0.1.0"
 description = "Recurring payment recovery simulator (India)"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 dependencies = [
     "pydantic>=2.6",
     "pyyaml>=6.0",

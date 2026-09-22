@@ -11,6 +11,14 @@ It ships two things:
 | **Simulator** | Generates a synthetic mandate book, runs 12 months of billing, and measures competing retry strategies against each other under identical conditions | Synthetic only |
 | **Scoring service** | Takes an observed failure and returns a recommended retry time, the rule that produced it, and the measured evidence for that segment | Real merchant data |
 
+**[Pitch deck (PPTX)](rebound-pitch.pptx)**: the product case in slides. The rest of this README is the engineering.
+
+![A fast simulation result: debit failure rates by rail, and the rescheduling and retry-strategy lifts reported as two separate line items with 90% intervals](docs/screenshots/result.png)
+
+| Merchant profile and run options | Scoring service answering uploaded failures |
+|---|---|
+| ![Dashboard inputs: book size, ticket, rail shares, failure mix and fee, with fast and publication run options](docs/screenshots/overview.png) | ![Batch recommendations for five sample failures: retry times, strategy, rule and segment evidence, including a compliance block and a hard-decline stop](docs/screenshots/scoring-service.png) |
+
 > [!IMPORTANT]
 > **Every figure this project produces is simulated.** No merchant's real book has been measured. The assumptions are documented, versioned and swept — but they are assumptions. See [Limitations](#limitations) before quoting any number.
 
@@ -83,7 +91,7 @@ Strategies receive a `CustomerObservable` — a distinct type that makes reading
 ## Quick start
 
 ```bash
-git clone <repo> && cd rebound
+git clone https://github.com/karthikraoofficial/Autopay_recovery_simulator-recommender.git rebound && cd rebound
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pytest -q
@@ -108,6 +116,15 @@ Six inputs: book size, average ticket, UPI share, eNACH share, failure mix, perf
 - **Publication** — the merchant's actual book size at powered sizing. Slower; runs in the background with a duration estimate.
 
 There is no caching. A cache would hide the cost that the interval width is there to communicate.
+
+### Trying the scoring service
+
+[`examples/sample-failures.csv`](examples/sample-failures.csv) holds five made-up failures, one per interesting path: a reason-aware wait, a technical retry, an eNACH row with a batch cutoff, a retry blocked by compliance, and a hard decline that stops the chain. Upload it under *Recommend retries for your own failures*, or send it to the API directly:
+
+```bash
+curl -X POST -H "Content-Type: text/csv" --data-binary @examples/sample-failures.csv \
+  http://localhost:8001/recommend/batch
+```
 
 ---
 
@@ -231,3 +248,7 @@ Tests before implementation for anything under `compliance/` or `harness/`.
 ## Status
 
 Tagged through `v0.4.2-volumes`. The engineering that can be done without real data is done; what remains is validation, not code.
+
+## License
+
+[MIT](LICENSE) © Karthik Rao
