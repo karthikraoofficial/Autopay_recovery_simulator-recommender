@@ -2,6 +2,10 @@
 
 **A discrete-event simulator and scoring service for recurring-payment retry recovery in India.**
 
+**Live demo:** https://autopay-recovery-simulator-recommen.vercel.app
+
+The API runs on Render's free tier, so the first request after ~15 minutes idle takes about a minute while it wakes, and a fast run takes about two minutes there.
+
 `rebound` answers one question with measurement rather than assertion: *when a UPI AutoPay, eNACH or card e-mandate debit fails, what is a better retry policy actually worth?*
 
 It ships two things:
@@ -97,7 +101,7 @@ pip install -e ".[dev]"
 pytest -q
 
 # API
-uvicorn rebound.api.app:app --port 8000 --reload
+uvicorn rebound.api.app:app --port 8001 --reload
 
 # Dashboard
 cd web && npm install && npm run dev
@@ -125,6 +129,33 @@ There is no caching. A cache would hide the cost that the interval width is ther
 curl -X POST -H "Content-Type: text/csv" --data-binary @examples/sample-failures.csv \
   http://localhost:8001/recommend/batch
 ```
+
+---
+
+## Deployment
+
+The live demo is two services:
+
+| Part | Host | Settings |
+|---|---|---|
+| React dashboard (`web/`) | Vercel | Root Directory `web` |
+| FastAPI service | Render | Python 3.12; build `pip install -e .`; start `uvicorn rebound.api.app:app --host 0.0.0.0 --port $PORT` |
+
+**The install must be editable.** `config/`, `notebooks/phase85_result.json` and `config/merchants/` are located relative to the source files. A regular install copies the package into `site-packages` and those paths no longer resolve.
+
+**The API is not on Vercel** because every run goes through the in-memory job queue on a background thread. A serverless function returns and is frozen or discarded; it cannot hold that thread or the queue between requests.
+
+**Routing.** `web/vercel.json` rewrites `/api/*` to the Render service, so the dashboard stays origin-relative as it is in local dev. The exception is the segment report and trace downloads: they re-run a simulation inside one request, and Vercel's proxy times out first. They call Render directly through `VITE_DIRECT_API_BASE`, which is why the API needs CORS configured for the deployed origin.
+
+| Variable | Set on | Purpose |
+|---|---|---|
+| `VITE_DIRECT_API_BASE` | Vercel | Base URL the downloads call directly. Read at build time, so redeploy after changing it. Unset, downloads go through `/api` like everything else. |
+| `REBOUND_ALLOWED_ORIGINS` | Render | Comma-separated CORS origins, added to the always-allowed Vite dev server. |
+
+**Known limits on the free tier:**
+
+- Cold starts: the service sleeps after ~15 minutes idle and takes about a minute to wake.
+- Publication-size runs may exceed the free instance's memory. Run those locally.
 
 ---
 
@@ -248,6 +279,8 @@ Tests before implementation for anything under `compliance/` or `harness/`.
 ## Status
 
 Tagged through `v0.4.2-volumes`. The engineering that can be done without real data is done; what remains is validation, not code.
+
+A demo is deployed at https://autopay-recovery-simulator-recommen.vercel.app (dashboard on Vercel, API on Render's free tier); see [Deployment](#deployment) for how it is wired and what it cannot do.
 
 ## License
 
