@@ -7,6 +7,8 @@ interactive runs are made cheap instead (fewer seeds, wider intervals, both repo
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -50,9 +52,24 @@ from rebound.recommend.mapping import (
 )
 from rebound.recommend.service import Recommendation, recommend
 
-# The Vite dev server. A simulator that runs locally and talks to nothing else does not
-# need a configurable origin list, and SPEC §7 says no cloud until a merchant asks.
+# The Vite dev server, always allowed. A deployed front end is added through
+# REBOUND_ALLOWED_ORIGINS rather than here: its downloads call this API directly because
+# the host's rewrite proxy times out on /segments, which re-runs a full simulation, and a
+# direct cross-origin call needs that origin allowed. Unset, only the dev server is.
 DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+ALLOWED_ORIGINS_ENV = "REBOUND_ALLOWED_ORIGINS"
+
+
+def allowed_origins(extra: str | None) -> list[str]:
+    """DEV_ORIGINS plus the comma-separated `extra`, trimmed, with blank entries dropped."""
+    origins = list(DEV_ORIGINS)
+    if extra is None:
+        return origins
+    for entry in extra.split(","):
+        origin = entry.strip()
+        if origin and origin not in origins:
+            origins.append(origin)
+    return origins
 
 
 class RunEstimate(BaseModel):
@@ -137,7 +154,7 @@ def create_app() -> FastAPI:
     app.state.jobs = JobRegistry()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(DEV_ORIGINS),
+        allow_origins=allowed_origins(os.environ.get(ALLOWED_ORIGINS_ENV)),
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )

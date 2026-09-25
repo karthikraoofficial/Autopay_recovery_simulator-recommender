@@ -5,7 +5,10 @@ import { duration } from "./format.js";
 // line items; a segment table or a trace grid beside the chart would compete with it and
 // invite reading a per-segment number as the result.
 
-const API = "/api";
+// The two downloads re-run the simulation, which on a deployed backend outlasts the
+// host's rewrite proxy, so they may call the API directly. Unset (local dev), they go
+// through "/api" like everything else.
+const DOWNLOAD_API = import.meta.env.VITE_DIRECT_API_BASE ?? "/api";
 
 // /trace generates a book of this size at most (api.publication_book_size_cap is a
 // different limit). A trace must be of the SAME book as the result it sits under, so
@@ -57,6 +60,12 @@ export default function Downloads({ result, profile }) {
     try {
       response = await fetch(url);
     } catch {
+      if (DOWNLOAD_API !== "/api") {
+        throw new Error(
+          `Cannot reach the simulation API at ${DOWNLOAD_API}. It may be waking from ` +
+            "sleep; retry in a minute."
+        );
+      }
       throw new Error(
         "Cannot reach the simulation API. Start it with: " +
           "python -m uvicorn rebound.api.app:app --port 8001"
@@ -96,7 +105,7 @@ export default function Downloads({ result, profile }) {
   const segments = () =>
     download("segments", async () => {
       const text = await fetchText(
-        `${API}/segments?${query({
+        `${DOWNLOAD_API}/segments?${query({
           sizing: result.sizing,
           format: "text",
           // Refused server-side if this report is not the run above it.
@@ -112,7 +121,7 @@ export default function Downloads({ result, profile }) {
   const trace = (table) =>
     download(`trace-${table}`, async () => {
       const text = await fetchText(
-        `${API}/trace?${new URLSearchParams({
+        `${DOWNLOAD_API}/trace?${new URLSearchParams({
           seed,
           table,
           format: "csv",
